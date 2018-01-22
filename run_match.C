@@ -285,23 +285,35 @@ void DoMatching()
 ///*
 void DoMatching(int sec)
 {
-  printf("\n\nMatching sector %d\n",sec);
+  LOG(INFO)<<"Matching sector "<<sec<<FairLogger::endl;
   
   auto &cacheITS = mITSSectIndexCache[sec]; // array of cached ITS track indices for this sector
   auto &cacheTPC = mTPCSectIndexCache[sec]; // array of cached ITS track indices for this sector
   auto &tbinStartTPC = mTPCTimeBinStart[sec];   // array of 1st TPC track with timeMax in ITS ROFrame
   auto &tbinStartITS = mITSTimeBinStart[sec];
-  int nTracksITS = cacheITS.size();
-  int nTracksTPC = cacheTPC.size();
-  if (!tbinStartTPC.size() || !tbinStartITS.size()) {
-    printf("No TPC tracks in sector %d\n",sec);
+  int nTracksTPC = cacheTPC.size(), nTracksITS = cacheITS.size();
+  LOG(INFO)<<"N tracks TPC="<<nTracksTPC<<" ITS="<<nTracksITS<<" in sector "<<sec<<FairLogger::endl;
+  if (!nTracksTPC || !nTracksITS) {
     return;
   }
-
+  
   /// full drift time + safety margin
   float maxTDriftSafe = (mNTPCBinsFullDrift+mITSTPCTimeBinSafeMargin+mTPCTimeEdgeTSafeMargin);
 
-  for (int itpc=0;itpc<nTracksTPC; itpc++) {
+  // get min ROFrame (in TPC time-bins) of ITS tracks currently in cache
+  auto minROFITS = mITSWork[ cacheITS.front() ].roFrame;
+
+  if (minROFITS>=int(tbinStartTPC.size())) {
+    LOG(INFO)<<"ITS min ROFrame "<<minROFITS<<" exceeds all cached TPC track ROF eqiuvalent "<<
+	     cacheTPC.size()-1<<FairLogger::endl;
+    return;
+  }
+  int idxMinTPC = tbinStartTPC[minROFITS]; // index of 1st cached TPC track within cached ITS ROFrames
+
+  printf("MinROFITS: %d, 1st TPCtrack %d [%.2f : %.2f]\n",minROFITS, idxMinTPC,
+	 mTPCWork[ cacheTPC[idxMinTPC] ].timeMin, mTPCWork[ cacheTPC[idxMinTPC] ].timeMax);
+  
+  for (int itpc=idxMinTPC;itpc<nTracksTPC; itpc++) {
     auto & trefTPC = mTPCWork[ cacheTPC[itpc] ];
     // estimate ITS 1st ROframe bin this track may match to: TPC track are sorted according to their
     // timeMax, hence the timeMax - MaxmNTPCBinsFullDrift are non-decreasing
@@ -324,8 +336,7 @@ void DoMatching(int sec)
 	// ITS tracks in each ROFrame are ordered in Tgl, hence if this check failed on Tgl check
 	// (i.e. tgl_its>tgl_tpc+tolerance), tnem all other ITS tracks in this ROFrame will also have tgl too large.
 	// Jump on the 1st ITS track of the next ROFrame
-	int nextROF = trefITS.roFrame+1;
-	if (nextROF >=  tbinStartITS.size()) { // no more ITS ROFrames in cache
+	if ( (nextROF=trefITS.roFrame+1) >=  tbinStartITS.size()) { // no more ITS ROFrames in cache
 	  break;
 	}
 	printf("JUMP from %d to %d\n",iits, tbinStartITS[nextROF]-1);
@@ -402,7 +413,7 @@ int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   chi2 = -1.f;
   
   if (std::abs(trackTPC.getAlpha()-trackITS.getAlpha())>1e-5) {
-    printf("alpha mistmatch\n");
+    LOG(ERROR)<<"alpha mistmatch"<<FairLogger::endl;
     trackTPC.Print();
     trackITS.Print();
   }
@@ -588,7 +599,7 @@ bool PrepareTPCData()
   // sort tracks in each sector according to their timeMax
   for (int sec=o2::Base::Constants::kNSectors; sec--;) {
     auto &indexCache = mTPCSectIndexCache[sec];
-    printf("Sorting %d | %zu TPC tracks\n",sec, indexCache.size());
+    LOG(INFO) <<"Sorting "<<sec<<" | "<<indexCache.size()<<" TPC tracks"<<FairLogger::endl;
     if (!indexCache.size()) continue;
     std::sort(indexCache.begin(), indexCache.end(),
 	      [](int a, int b) {	       
@@ -680,7 +691,7 @@ bool PrepareITSData()
   // sort tracks in each sector according to their time, then tgl
   for (int sec=o2::Base::Constants::kNSectors; sec--;) {
     auto &indexCache = mITSSectIndexCache[sec];
-    printf("Sorting %d | %zu ITS tracks\n",sec, indexCache.size());
+    LOG(INFO) <<"Sorting "<<sec<<" | "<<indexCache.size()<<" ITS tracks"<<FairLogger::endl;
     if (!indexCache.size()) {
       continue;
     }
@@ -725,7 +736,8 @@ bool LoadITSData()
   ///< load next chunk of ITS data
   while(++mCurrITSTreeEntry < chainITS->GetEntries()) {
     chainITS->GetEntry(mCurrITSTreeEntry);
-    printf("\nStarting ITS entry %d -> %d tracks\n",mCurrITSTreeEntry,mITSTracksArrayInp->size());
+    LOG(INFO)<<"Starting ITS entry "<<mCurrITSTreeEntry<<" -> "
+	     <<mITSTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (!mITSTracksArrayInp->size()) {
       continue;
     }
@@ -740,7 +752,8 @@ bool LoadTPCData()
   ///< load next chunk of TPC data
   while(++mCurrTPCTreeEntry < chainTPC->GetEntries()) {
     chainTPC->GetEntry(mCurrTPCTreeEntry);
-    printf("\nStarting TPC entry %d -> %d tracks\n",mCurrTPCTreeEntry,mTPCTracksArrayInp->size());
+    LOG(INFO)<<"Starting TPC entry "<<mCurrTPCTreeEntry<<" -> "
+	     <<mTPCTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (mTPCTracksArrayInp->size()<1) {
       continue;
     }
@@ -754,13 +767,13 @@ bool LoadTPCData()
 int initSimGeomAndField(std::string geomFileName,std::string grpFileName,
 			std::string geomName,std::string grpName)
 {
-  printf("Loading geometry from %s\n",geomFileName.data());
+  LOG(INFO)<<"Loading geometry from "<<geomFileName.data()<<FairLogger::endl;
   TFile flGeom(geomFileName.data());
   if ( flGeom.IsZombie() ) return -1;
   if ( !flGeom.Get(geomName.data()) ) return -2;
 
   //
-  printf("Loading field from GRP of %s\n",grpFileName.data());
+  LOG(INFO)<<"Loading field from GRP of "<<grpFileName.data()<<FairLogger::endl;
   TFile flGRP(grpFileName.data());
   if ( flGRP.IsZombie() ) return -10;
   auto grp = static_cast<GRP*>(flGRP.GetObjectChecked(grpName.data(),
