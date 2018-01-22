@@ -321,11 +321,18 @@ void DoMatching(int sec)
       float chi2 = -1;
       int rejFlag = CompareITSTPCTracks(trefITS,trefTPC,chi2);
       if (rejFlag == RejectOnTgl) {
-	// ITS tracks in each ROFrame are ordered in Tgl, if this check failed on Tgl check,
-	// all other tracks in this ROFrame will fail too
-	// TODO
+	// ITS tracks in each ROFrame are ordered in Tgl, hence if this check failed on Tgl check
+	// (i.e. tgl_its>tgl_tpc+tolerance), tnem all other ITS tracks in this ROFrame will also have tgl too large.
+	// Jump on the 1st ITS track of the next ROFrame
+	int nextROF = trefITS.roFrame+1;
+	if (nextROF >=  tbinStartITS.size()) { // no more ITS ROFrames in cache
+	  break;
+	}
+	printf("JUMP from %d to %d\n",iits, tbinStartITS[nextROF]-1);
+	iits = tbinStartITS[nextROF]-1;  // next track to be checked 
+	continue;
       }
-      if (rejFlag) continue;
+      if (rejFlag!=Accept) continue;
     }
     
   }
@@ -432,49 +439,51 @@ int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   // make rough check differences and their nsigmas
   float diff;
   int rejFlag;
-  diff = trackTPC.getParam(Track::kY)-trackITS.getParam(Track::kY);
+
+  // start with check on Tgl, since rjection on it will allow to profit from sorting
+  diff = trackITS.getParam(Track::kTgl)-trackTPC.getParam(Track::kTgl);
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kTgl], RejectOnTgl)) ) {
+    return rejFlag;
+  }
+  diff /= (trackITS.getDiarError2(Track::kTgl)+trackTPC.getDiarError2(Track::kTgl));
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kTgl], RejectOnTgl+NSigmaShift)) ) {
+    return rejFlag;
+  }
+
+  diff = trackITS.getParam(Track::kY)-trackTPC.getParam(Track::kY);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kY], RejectOnY)) ) {
     return rejFlag;
   }
-  diff /= (trackTPC.getDiarError2(Track::kY)+trackITS.getDiarError2(Track::kY));
+  diff /= (trackITS.getDiarError2(Track::kY)+trackTPC.getDiarError2(Track::kY));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kY], RejectOnY+NSigmaShift)) ) {
     return rejFlag;
   }
   
   if (mCompareTracksDZ) { // in continuous mode we usually don't use DZ
-    diff = trackTPC.getParam(Track::kZ)-trackITS.getParam(Track::kZ);
+    diff = trackITS.getParam(Track::kZ)-trackTPC.getParam(Track::kZ);
     if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kZ],RejectOnZ)) ) {
       return rejFlag;
     }
-    diff /= (trackTPC.getDiarError2(Track::kZ)+trackITS.getDiarError2(Track::kZ));
-    if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kZ], RejectOnY+NSigmaShift)) ) {
+    diff /= (trackITS.getDiarError2(Track::kZ)+trackTPC.getDiarError2(Track::kZ));
+    if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kZ], RejectOnZ+NSigmaShift)) ) {
       return rejFlag;
     }    
   }
 
-  diff = trackTPC.getParam(Track::kSnp)-trackITS.getParam(Track::kSnp);
+  diff = trackITS.getParam(Track::kSnp)-trackTPC.getParam(Track::kSnp);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kSnp], RejectOnSnp)) ) {
     return rejFlag;
   }
-  diff /= (trackTPC.getDiarError2(Track::kSnp)+trackITS.getDiarError2(Track::kSnp));
+  diff /= (trackITS.getDiarError2(Track::kSnp)+trackTPC.getDiarError2(Track::kSnp));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kSnp], RejectOnSnp+NSigmaShift)) ) {
     return rejFlag;
   }
   
-  diff = trackTPC.getParam(Track::kTgl)-trackITS.getParam(Track::kTgl);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kSnp], RejectOnSnp)) ) {
-    return rejFlag;
-  }
-  diff /= (trackTPC.getDiarError2(Track::kTgl)+trackITS.getDiarError2(Track::kTgl));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kTgl], RejectOnTgl+NSigmaShift)) ) {
-    return rejFlag;
-  }
-  
-  diff = trackTPC.getParam(Track::kQ2Pt)-trackITS.getParam(Track::kQ2Pt);
+  diff = trackITS.getParam(Track::kQ2Pt)-trackTPC.getParam(Track::kQ2Pt);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kQ2Pt], RejectOnQ2Pt)) ) {
     return rejFlag;
   }
-  diff /= (trackTPC.getDiarError2(Track::kQ2Pt)+trackITS.getDiarError2(Track::kQ2Pt));
+  diff /= (trackITS.getDiarError2(Track::kQ2Pt)+trackTPC.getDiarError2(Track::kQ2Pt));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kQ2Pt], RejectOnQ2Pt+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -576,34 +585,16 @@ bool PrepareTPCData()
     mTPCSectIndexCache[Utils::Angle2Sector( trc.track.getAlpha() )].push_back( nWorkTracks++ ); 
   }
 
-  // sort tracks in each sector according to their timeMax, then tgl, then snp
+  // sort tracks in each sector according to their timeMax
   for (int sec=o2::Base::Constants::kNSectors; sec--;) {
     auto &indexCache = mTPCSectIndexCache[sec];
     printf("Sorting %d | %zu TPC tracks\n",sec, indexCache.size());
     if (!indexCache.size()) continue;
     std::sort(indexCache.begin(), indexCache.end(),
-	      [](int a, int b) {
+	      [](int a, int b) {	       
 		auto &trcA = mTPCWork[a];
 		auto &trcB = mTPCWork[b];		
-		auto dt = trcA.timeMax - trcB.timeMax;
-		if (dt < -TolerSortTime) {
-		  return true;
-		}
-		else if (dt > TolerSortTime) {
-		  return false;
-		}
-		// RS: do we actually use this?
-		// times are equal within the tolerance
-		
-		auto dTgl = trcA.track.getTgl() - trcB.track.getTgl();
-		if (dTgl < -TolerSortTgl) {
-		  return true;
-		}
-		else if (dTgl > TolerSortTgl) {
-		  return false;
-		}
-		// tgl are also equal within the tolerance
-		return trcA.track.getSnp() < trcB.track.getSnp();
+		return (trcA.timeMax - trcB.timeMax) < 0.;
 	      });
 
     // build array of 1st entries with tmax corresponding to each ITS RO cycle
@@ -696,25 +687,14 @@ bool PrepareITSData()
     std::sort(indexCache.begin(), indexCache.end(),
 	      [](int a, int b) {
 		auto &trackA = mITSWork[a];
-		auto &trackB = mITSWork[b];
-
-		// consider having only 1 ROFrame at once
+		auto &trackB = mITSWork[b];		
 		if (trackA.roFrame < trackB.roFrame) { // ITS tracks have the same time coverage
 		  return true;
 		}
 		else if (trackA.roFrame > trackB.roFrame) { 
 		  return false;
 		}
-
-		auto dTgl = trackA.track.getTgl() - trackB.track.getTgl();
-		if (dTgl < -TolerSortTgl) {
-		  return true;
-		}
-		else if (dTgl > TolerSortTgl) {
-		  return false;
-		}
-		// tgl are also equal within the tolerance
-		return trackA.track.getSnp() < trackB.track.getSnp();
+		return (trackA.track.getTgl() - trackB.track.getTgl()) < 0.;
 	      });
     
     // build array of 1st entries with of each ITS RO cycle
