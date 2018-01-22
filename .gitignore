@@ -1,0 +1,8 @@
+.rootrc
+*.so
+*.d
+*.gif
+*.png
+*.log
+*.txt
+*.root
