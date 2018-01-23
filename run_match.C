@@ -457,7 +457,7 @@ int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kTgl], RejectOnTgl)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiarError2(Track::kTgl)+trackTPC.getDiarError2(Track::kTgl));
+  diff /= (trackITS.getDiagError2(Track::kTgl)+trackTPC.getDiagError2(Track::kTgl));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kTgl], RejectOnTgl+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -466,7 +466,7 @@ int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kY], RejectOnY)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiarError2(Track::kY)+trackTPC.getDiarError2(Track::kY));
+  diff /= (trackITS.getDiagError2(Track::kY)+trackTPC.getDiagError2(Track::kY));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kY], RejectOnY+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -476,7 +476,7 @@ int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
     if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kZ],RejectOnZ)) ) {
       return rejFlag;
     }
-    diff /= (trackITS.getDiarError2(Track::kZ)+trackTPC.getDiarError2(Track::kZ));
+    diff /= (trackITS.getDiagError2(Track::kZ)+trackTPC.getDiagError2(Track::kZ));
     if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kZ], RejectOnZ+NSigmaShift)) ) {
       return rejFlag;
     }    
@@ -486,7 +486,7 @@ int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kSnp], RejectOnSnp)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiarError2(Track::kSnp)+trackTPC.getDiarError2(Track::kSnp));
+  diff /= (trackITS.getDiagError2(Track::kSnp)+trackTPC.getDiagError2(Track::kSnp));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kSnp], RejectOnSnp+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -495,7 +495,7 @@ int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kQ2Pt], RejectOnQ2Pt)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiarError2(Track::kQ2Pt)+trackTPC.getDiarError2(Track::kQ2Pt));
+  diff /= (trackITS.getDiagError2(Track::kQ2Pt)+trackTPC.getDiagError2(Track::kQ2Pt));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kQ2Pt], RejectOnQ2Pt+NSigmaShift)) ) {
     return rejFlag;
   }
