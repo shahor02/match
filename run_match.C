@@ -336,7 +336,8 @@ void DoMatching(int sec)
 	// ITS tracks in each ROFrame are ordered in Tgl, hence if this check failed on Tgl check
 	// (i.e. tgl_its>tgl_tpc+tolerance), tnem all other ITS tracks in this ROFrame will also have tgl too large.
 	// Jump on the 1st ITS track of the next ROFrame
-	if ( (nextROF=trefITS.roFrame+1) >=  tbinStartITS.size()) { // no more ITS ROFrames in cache
+	int nextROF = trefITS.roFrame+1;
+	if ( nextROF >=  tbinStartITS.size()) { // no more ITS ROFrames in cache
 	  break;
 	}
 	printf("JUMP from %d to %d\n",iits, tbinStartITS[nextROF]-1);
