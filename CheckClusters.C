@@ -2,20 +2,20 @@
 /// \brief Simple macro to check ITSU clusters
 
 #if !defined(__CLING__) || defined(__ROOTCLING__)
-  #include <TFile.h>
-  #include <TTree.h>
-  #include <TH2F.h>
-  #include <TNtuple.h>
-  #include <TCanvas.h>
-  #include <TString.h>
+#include <TFile.h>
+#include <TTree.h>
+#include <TH2F.h>
+#include <TNtuple.h>
+#include <TCanvas.h>
+#include <TString.h>
 
-  #include "ITSMFTSimulation/Hit.h"
-  #include "DetectorsBase/Utils.h"
-  #include "MathUtils/Cartesian3D.h"
-  #include "ITSBase/GeometryTGeo.h"
-  #include "ITSMFTReconstruction/Cluster.h"
-  #include "SimulationDataFormat/MCCompLabel.h"
-  #include "SimulationDataFormat/MCTruthContainer.h"
+#include "ITSMFTSimulation/Hit.h"
+#include "DetectorsBase/Utils.h"
+#include "MathUtils/Cartesian3D.h"
+#include "ITSBase/GeometryTGeo.h"
+#include "ITSMFTReconstruction/Cluster.h"
+#include "SimulationDataFormat/MCCompLabel.h"
+#include "SimulationDataFormat/MCTruthContainer.h"
 #endif
 
 void CheckClusters() {
@@ -81,8 +81,10 @@ void CheckClusters() {
       float dx=0,dz=0;
       int trID = lab.getTrackID();
       int ievH = lab.getEventID();
+      
       Point3D<float> locH,locHsta,gloH;
       if (trID>=0) { // is this cluster from hit or noise ?  
+	//printf("Ev:%d Cl%d/%d RO:%d Chip:%d -> H %d / %d lastReadHitEv: %d\n",ievC,nc,clusArr->size(),c.getROFrame(),chipID, trID, ievH, lastReadHitEv);
 	Hit* p = nullptr;
 	if (lastReadHitEv!=ievH) {
 	  hitTree->GetEvent(ievH);

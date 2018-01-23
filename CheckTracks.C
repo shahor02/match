@@ -79,7 +79,7 @@ void CheckTracks(std::string paramfile="o2sim.root",
       Float_t recLam=-1.; 
       Float_t recPt=-1.; 
       Float_t ip[2]{0.,0.};
-      o2::MCCompLabel label;
+      o2::MCCompLabel label, mcLabel(nmc,n);
       int roFrame = -1;
       for (int ievRec=n;ievRec<nevRec;ievRec++) { // corresponding rec event may start fron n
 	recTree->GetEvent(ievRec);
@@ -105,7 +105,7 @@ void CheckTracks(std::string paramfile="o2sim.root",
       }
       mDBGOut<<"itscheck"
 	     <<"mcPhi="<<mcPhi<<"mcLam="<<mcLam<<"mcPt="<<mcPt<<"recPhi="<<recPhi<<"recLam="<<recLam<<"recPt="<<recPt
-	     <<"ipD="<<ip[0]<<"ipZ="<<ip[1]<<"roFrame="<<roFrame<<"label="<<label<<"\n";
+	     <<"ipD="<<ip[0]<<"ipZ="<<ip[1]<<"roFrame="<<roFrame<<"label="<<label<<"mcLabel="<<mcLabel <<"\n";
     }
     Float_t eff = (nGen > 0) ? nGoo/Float_t(nGen) : -1.;
     std::cout<<"Good found tracks: "<<nGoo<<" gen tracks "<<nGen<<",  efficiency: "<<eff<<std::endl;
