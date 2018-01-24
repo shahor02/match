@@ -75,6 +75,7 @@ int mCurrITSTreeEntry=-1; ///< current ITS tree entry loaded to memory
 
 const float xTPCInnerRef = 80.0; ///< reference radius at which TPC provides the tracks 
 const float xRef = 70.0;
+const float yMaxAtXRef = xRef*std::tan(o2::Base::Constants::kSectorSpanRad*0.5); ///< max Y in the sector at reference X
 //const float xRef = 70.0;
 const float rMaxITS = 39.3; ///<RS??
 const float zMaxITS = 85.; ///<with margin RS??
@@ -98,6 +99,12 @@ bool mCompareTracksDZ = false; // do we use track Z difference to reject fake ma
 
 constexpr float TolerSortTime = 0.1; ///<tolerance for comparison of 2 tracks times
 constexpr float TolerSortTgl = 1e-4; ///<tolerance for comparison of 2 tracks tgl
+
+constexpr float Tan70 = 2.74747771e+00; // tg(70 degree): std::tan(70.*o2::Base::Constants::kPI/180.);
+constexpr float Cos70I2 = 1.+Tan70*Tan70; // 1/cos^2(70) = 1 + tan^2(70)
+constexpr float MaxSnp = 0.85;
+constexpr float MaxTgp = 1.61357f; // max tg corresponting to MaxSnp = MaxSnp/std::sqrt((1.-MaxSnp)*(1.+MaxSnp));
+//constexpr float Max;
 
 TChain *chainITS=nullptr, *chainTPC=nullptr;
 
@@ -660,7 +667,7 @@ bool PrepareITSData()
     auto & trc = mITSWork.back();
 
     if ( !trc.track.rotate( Utils::Angle2Alpha(trc.track.getPhiPos()) ) ) {
-      mITSWork.pop_back(); // discard failed track (RS: check effect on matching tracks to neighbouring sector)
+      mITSWork.pop_back(); // discard failed track
       continue;
     }
     // make sure the track is at the ref. radius
@@ -678,15 +685,25 @@ bool PrepareITSData()
 	break; // failed (RS: check effect on matching tracks to neighbouring sector)
       }
     }
-    if (!refReached) {
-      continue; // add to cache only those ITS tracks which reached ref.X
+    if (!refReached || std::abs(trc.track.getSnp())>MaxSnp) {
+      mITSWork.pop_back(); // discard failed track
+      continue; // add to cache only those ITS tracks which reached ref.X and have reasonable snp
     }
     trc.timeMin = ITSROFrame2TPCTimeBin(trcOrig.getROFrame());
     trc.timeMax = trc.timeMin + mITSROFrame2TPCBin;
     trc.roFrame = trcOrig.getROFrame();
 
     // cache work track index
-    mITSSectIndexCache[Utils::Angle2Sector( trc.track.getAlpha() )].push_back( nWorkTracks++ );
+    int sector = Utils::Angle2Sector( trc.track.getAlpha() );
+    mITSSectIndexCache[sector].push_back( nWorkTracks++ );
+
+    // If the ITS track is very close to the sector edge, it may match also to a TPC track in the neighbouring sector.
+    // For a track with Yr and Phir at Xr the distance^2 between the poisition of this track in the neighbouring sector
+    // when propagated to Xr (in this neighbouring sector) and the edge will be (neglecting the curvature)
+    // [(Xr*tg(10)-Yr)/(tgPhir+tg70)]^2  / cos(70)^2  // for the next sector
+    // [(Xr*tg(10)+Yr)/(tgPhir-tg70)]^2  / cos(70)^2  // for the prev sector
+    float distUp, distDn; // distances to the sector edges in neighbourings sectors (at Xref in theit proper frames)
+    
   }
   
   // sort tracks in each sector according to their time, then tgl
