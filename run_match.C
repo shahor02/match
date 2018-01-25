@@ -37,6 +37,9 @@
 #include <vector>
 #endif
 
+TStopwatch timer;
+
+
 using o2field = o2::field::MagneticField;
 using o2fieldFast = o2::field::MagFieldFast;
 using GRP = o2::parameters::GRPObject;
@@ -126,7 +129,8 @@ std::unique_ptr<TreeStreamRedirector> mDBGOut;
 UInt_t mDBGFlags = 0;
 
 enum DebugFlagTypes : UInt_t {
-  MatchTree = 0x1<<0     ///< produce matching canditaes tree
+  MatchTreeCorrect = 0x1<<0,   ///< produce matching canditaes tree for correct candidates
+  MatchTreeAll     = 0x1<<1    ///< produce matching canditaes tree for all candidates
 };
 
 enum TrackRejFlag : int {
@@ -139,6 +143,15 @@ enum TrackRejFlag : int {
   RejectOnChi2,
   NSigmaShift = 10  
 };
+
+///< check if partucular flags are set
+bool isDebugFlag(UInt_t flags) { return mDBGFlags & flags; }
+
+///< set or unset debug stream flag
+void setDebugFlag(UInt_t flag, bool on=true);
+
+///< get debug trees flags
+UInt_t getDebugFlags() { return mDBGFlags; }
 
 ///< set ITS RO Frame, TPC time bin duration in microseconds and TPC nominal VDrift
 void setTPCITSParams(float itsROFrame, float tpcTBin, float tpcVDrift, float tpcZMax)
@@ -202,8 +215,6 @@ float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2); //con
 bool propagateToRefX(o2::Base::Track::TrackParCov &trc);
 void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
 
-///< set or unset debug stream flag
-void setDebugFlag(DebugFlagTypes flag, bool on=true);
 
 const o2fieldFast* field = nullptr;
 
@@ -244,10 +255,9 @@ void run_match(float rate = 0. // continuous or triggered mode
   logger->SetLogScreenLevel("INFO");
 
   // request debug
-  setDebugFlag(MatchTree,true);
+  setDebugFlag(MatchTreeAll|MatchTreeCorrect,true);
   
   // Setup timer
-  TStopwatch timer;
   timer.Start();
 
   // debug streamer
@@ -285,6 +295,9 @@ void run_match(float rate = 0. // continuous or triggered mode
       doMatching();
     }
   }
+
+  timer.Stop();
+  timer.Print();
   
   mDBGOut.reset();
 }
@@ -325,9 +338,6 @@ void doMatching(int sec)
     return;
   }
   int idxMinTPC = tbinStartTPC[minROFITS]; // index of 1st cached TPC track within cached ITS ROFrames
-
-  printf("MinROFITS: %d, 1st TPCtrack %d [%.2f : %.2f]\n",minROFITS, idxMinTPC,
-	 mTPCWork[ cacheTPC[idxMinTPC] ].timeMin, mTPCWork[ cacheTPC[idxMinTPC] ].timeMax);
   
   for (int itpc=idxMinTPC;itpc<nTracksTPC; itpc++) {
     auto & trefTPC = mTPCWork[ cacheTPC[itpc] ];
@@ -421,12 +431,6 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   ///< compare pair of ITS and TPC tracks
   auto & trackTPC = tTPC.track;
   auto & trackITS = tITS.track;
-
-  auto mcITS = mITSTrkLabels->getLabels(tITS.trOrigID);
-  auto mcTPC = mTPCTrkLabels->getLabels(tTPC.trOrigID);
-  auto lblITS = mcITS[0];
-  auto lblTPC = mcTPC[0];
-
   chi2 = -1.f;
   
   if (std::abs(trackTPC.getAlpha()-trackITS.getAlpha())>1e-5) {
@@ -435,33 +439,37 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
     trackITS.Print();
   }
   
-  if ( mDBGOut && (mDBGFlags&MatchTree) ) {
-    if (lblITS==lblTPC || 1) {
-      auto chi2 = getPredictedChi2NoZ(trackITS,trackTPC);
-      // we need non-const versions for streamer
-
-      printf("%3d/%3d [%f/%f] | %3d/%3d [%f/%f]\n",lblITS.getEventID(),lblITS.getTrackID(),
-	     tITS.timeMin,tITS.timeMax,
-	     lblTPC.getEventID(),lblTPC.getTrackID(),
-	     tTPC.timeMin,tTPC.timeMax);
+  if ( mDBGOut && isDebugFlag( MatchTreeCorrect|MatchTreeAll ) ) {
+    timer.Stop();
+    o2::MCCompLabel lblITS,lblTPC;
+    if (mMCTruthON) {
+      lblITS = mITSTrkLabels->getLabels(tITS.trOrigID)[0];
+      lblTPC = mTPCTrkLabels->getLabels(tTPC.trOrigID)[0];      
+    }
+    if ( isDebugFlag( MatchTreeAll ) || (mMCTruthON && lblITS==lblTPC) ) {
+      auto chi2 = getPredictedChi2NoZ(trackITS,trackTPC);    
+      // printf("%3d/%3d [%f/%f] | %3d/%3d [%f/%f]\n",lblITS.getEventID(),lblITS.getTrackID(),
+      // 	     tITS.timeMin,tITS.timeMax,
+      // 	     lblTPC.getEventID(),lblTPC.getTrackID(),
+      // 	     tTPC.timeMin,tTPC.timeMax);
       
-      auto trackITSnonConst = tITS;
-      auto trackTPCnonConst = tTPC;
-
+      // we need non-const versions for streamer
+      auto trackITSnc = tITS;
+      auto trackTPCnc = tTPC;
       auto trTPCorig = (*mTPCTracksArrayInp)[tTPC.trOrigID];
       auto trITSorig = (*mITSTracksArrayInp)[tITS.trOrigID];
-      
-      (*mDBGOut)<<"match"<<"its="<<trackITSnonConst.track<<"tpc="<<trackTPCnonConst.track<<"chi2="<<chi2
-		<<"itsTMin="<<trackITSnonConst.timeMin<<"itsTMax="<<trackITSnonConst.timeMax
-		<<"tpcTMin="<<trackTPCnonConst.timeMin<<"tpcTMax="<<trackTPCnonConst.timeMax//;
-		<<"itsf="<<trITSorig
-		<<"tpcf="<<trTPCorig;
-	
+      auto chi2ITS = trITSorig.getChi2(), chi2TPC = trTPCorig.getChi2();
+      auto nclITS = trITSorig.getNumberOfClusters(), nclTPC=trTPCorig.getNClusterReferences();
+      (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITSnc.track<<"itsROF="<<trackITSnc.roFrame
+		<<"itsTMin="<<trackITSnc.timeMin<<"itsTMax="<<trackITSnc.timeMax<<"chi2ITS="<<chi2ITS<<"nclITS="<<nclITS
+		<<"tpc="<<trackTPCnc.track<<"tpcTMin="<<trackTPCnc.timeMin<<"tpcTMax="<<trackTPCnc.timeMax
+		<<"chi2TPC="<<chi2TPC<<"nclTPC="<<nclTPC;
       if (mMCTruthON) {
 	(*mDBGOut)<<"match"<<"itsLbl="<<lblITS<<"tpcLbl="<<lblTPC;
       }
       (*mDBGOut)<<"match"<<"\n";
     }
+    timer.Start(kFALSE);
   }
   
   // make rough check differences and their nsigmas
@@ -557,7 +565,12 @@ TChain* initInputTPC(std::string &inputTracks)
 bool prepareTPCData()
 {
   // load next chunk of TPC data and prepare for matching
-  if (!loadTPCData()) return false;
+  timer.Stop();
+  if (!loadTPCData()) {
+    timer.Start(kFALSE);
+    return false;
+  }
+  timer.Start(kFALSE);
   
   // copy the track params, propagate to reference X and build sector tables
   int ntr = mTPCTracksArrayInp->size();
@@ -639,11 +652,16 @@ bool prepareTPCData()
 bool prepareITSData()
 {
   // load next chunk of ITS data and prepare for matching
-  if (!loadITSData()) return false;
+  timer.Stop();
+  if (!loadITSData()) {
+    timer.Start(kFALSE);
+    return false;
+  }
+  timer.Start(kFALSE);
   
   int ntr = mITSTracksArrayInp->size();
   mITSWork.clear();
-  mITSWork.reserve(ntr);
+  mITSWork.reserve(ntr*1.3); // tracks close to sector edge may require extra copies
   for (int sec=o2::Base::Constants::kNSectors;sec--;) {
     mITSSectIndexCache[sec].clear();
   }
@@ -735,7 +753,7 @@ bool prepareITSData()
 
     
   } // loop over tracks of single sector
-  
+
   return true;
 }
 
@@ -861,7 +879,7 @@ float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2) //RS m
 }
 
 //______________________________________________
-void setDebugFlag(DebugFlagTypes flag, bool on)
+void setDebugFlag(UInt_t flag, bool on)
 {
   ///< set debug stream flag
   if (on) {
