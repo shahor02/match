@@ -83,6 +83,7 @@ const float zMaxITS = 85.; ///<with margin RS??
 float mCrudeAbsDiff[Track::kNParams] = {2., 2., 0.2, 0.2, 4.}; ///<tolerance on abs. different of ITS/TPC params
 float mCrudeNSigma[Track::kNParams] = {49.,49.,49.,49.,49.}; ///<tolerance on per-component ITS/TPC params NSigma
 float mCutChi2TPCITS = 200;
+float mSectEdgeMargin2 = 0; // crude check if ITS track should be matched also in neighbouring sector
 
 ///< safety margin (in TPC time bins) for ITS-TPC tracks time (in TPC time bins!) comparison 
 float mITSTPCTimeBinSafeMargin = 1.; 
@@ -153,24 +154,24 @@ void setTPCITSParams(float itsROFrame, float tpcTBin, float tpcVDrift, float tpc
 }
 
 ///< convert TPC time bin to ITS ROFrame units
-int TPCTimeBin2ITSROFrame(float tbin) {
+int tpcTimeBin2ITSROFrame(float tbin) {
   int rof = tbin*mTPCBin2ITSROFrame;
   return rof<0 ? 0 : rof;
 }
 
 ///< convert ITS ROFrame to TPC time bin units
-float ITSROFrame2TPCTimeBin(int rof) {
+float itsROFrame2TPCTimeBin(int rof) {
   return rof*mITSROFrame2TPCBin;
 }
 
 ///< convert Z interval to TPC time-bins
-float Z2TPCBin(float z)
+float z2TPCBin(float z)
 {
   return z*mZ2TPCBin;
 }
 
 ///< convert TPC time-bins to Z interval
-float TPCBin2Z(float t)
+float tpcBin2Z(float t)
 {
   return t*mTPCBin2Z;
 }
@@ -190,14 +191,16 @@ void initFieldFromGRP(const o2::parameters::GRPObject* grp);
 
 TChain* initInputITS(std::string &inputTracks);
 TChain* initInputTPC(std::string &inputTracks);
-bool PrepareTPCData();
-bool PrepareITSData();
-bool LoadTPCData();
-bool LoadITSData();
-void DoMatching();
-void DoMatching(int sec);
-int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
+bool prepareTPCData();
+bool prepareITSData();
+bool loadTPCData();
+bool loadITSData();
+void doMatching();
+void doMatching(int sec);
+int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
 float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2); //const; //RS make it const
+bool propagateToRefX(o2::Base::Track::TrackParCov &trc);
+void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
 
 ///< set or unset debug stream flag
 void setDebugFlag(DebugFlagTypes flag, bool on=true);
@@ -258,21 +261,28 @@ void run_match(float rate = 0. // continuous or triggered mode
   fieldSlow->AllowFastField(true);
   field = fieldSlow->getFastField();
 
+  // ================= DIFFEREN INITS HERE =======================
+  
   // set ITS and TPC time bin units in \mus
   const ParameterGas &gasParam = ParameterGas::defaultInstance();
   const ParameterElectronics &elParam = ParameterElectronics::defaultInstance();
   const ParameterDetector& detParam = ParameterDetector::defaultInstance();
   // TPC time-bin and ITS RO frame in \mus and max drift length
   setTPCITSParams(10., elParam.getZBinWidth(), gasParam.getVdrift(), detParam.getTPClength()); 
-  mTPCTimeEdgeTSafeMargin = Z2TPCBin(mTPCTimeEdgeZSafeMargin);
+  mTPCTimeEdgeTSafeMargin = z2TPCBin(mTPCTimeEdgeZSafeMargin);
+  // the ITS track in given sector might actually be the partner of TPC track in sector
+  // above or below if it is very close to the sector edge. Here is the square of the
+  // threshold for estimated distance of the track from neighboring sector edge when
+  // rotated to this sector and propagated to Xref 
+  mSectEdgeMargin2 = mCrudeAbsDiff[Track::kY]*mCrudeAbsDiff[Track::kY];
   
   chainITS = initInputITS(inputTracksITS);
   chainTPC = initInputTPC(inputTracksTPC);
   mMCTruthON = (mITSTrkLabels && mTPCTrkLabels);
   
-  while(PrepareTPCData()) {
-    while(PrepareITSData()) {    
-      DoMatching();
+  while(prepareTPCData()) {
+    while(prepareITSData()) {    
+      doMatching();
     }
   }
   
@@ -280,17 +290,16 @@ void run_match(float rate = 0. // continuous or triggered mode
 }
 
 
-void DoMatching()
+void doMatching()
 {
   for (int  sec=o2::Base::Constants::kNSectors;sec--;) {
-    DoMatching(sec);
+    doMatching(sec);
   }
 }
 
 
-///-----------------test
 ///*
-void DoMatching(int sec)
+void doMatching(int sec)
 {
   LOG(INFO)<<"Matching sector "<<sec<<FairLogger::endl;
   
@@ -324,7 +333,7 @@ void DoMatching(int sec)
     auto & trefTPC = mTPCWork[ cacheTPC[itpc] ];
     // estimate ITS 1st ROframe bin this track may match to: TPC track are sorted according to their
     // timeMax, hence the timeMax - MaxmNTPCBinsFullDrift are non-decreasing
-    int itsROBin = TPCTimeBin2ITSROFrame(trefTPC.timeMax - maxTDriftSafe);
+    int itsROBin = tpcTimeBin2ITSROFrame(trefTPC.timeMax - maxTDriftSafe);
     if (itsROBin>=tbinStartITS.size()) { // time of TPC track exceeds the max time of ITS in the cache
       break;
     }
@@ -338,7 +347,7 @@ void DoMatching(int sec)
 	break;
       }
       float chi2 = -1;
-      int rejFlag = CompareITSTPCTracks(trefITS,trefTPC,chi2);
+      int rejFlag = compareITSTPCTracks(trefITS,trefTPC,chi2);
       if (rejFlag == RejectOnTgl) {
 	// ITS tracks in each ROFrame are ordered in Tgl, hence if this check failed on Tgl check
 	// (i.e. tgl_its>tgl_tpc+tolerance), tnem all other ITS tracks in this ROFrame will also have tgl too large.
@@ -359,7 +368,7 @@ void DoMatching(int sec)
 }
 //*/
 /*
-void DoMatching(int sec)
+void doMatching(int sec)
 {
   printf("\n\nMatching sector %d\n",sec);
   
@@ -379,7 +388,7 @@ void DoMatching(int sec)
 
     // no point in testing TPC tracks whose timeMax < its_track_timeMin
     // we need to check TPC tracks starting from this bin
-    int tbin = static_cast<int>(TPCTimeBin2ITSROFrame(trefITS.timeMin));
+    int tbin = static_cast<int>(tpcTimeBin2ITSROFrame(trefITS.timeMin));
     if (tbin<0) tbin = 0;
     int itpc0 = tbinStartTPC[ tbin < nTBinsCached ? tbin : nTBinsCached-1 ]; //1st track index to consider
     printf("start with [%d/%d]->[%d/%d]\n",tbin,tbinStartTPC.size(), itpc0, cacheTPC.size());
@@ -398,7 +407,7 @@ void DoMatching(int sec)
       }
       //
       float chi2 = -1;
-      int rejFlag = CompareITSTPCTracks(trefITS,trefTPC,chi2);
+      int rejFlag = compareITSTPCTracks(trefITS,trefTPC,chi2);
       if (rejFlag) continue;
     }
     
@@ -407,7 +416,7 @@ void DoMatching(int sec)
 }
 */
 
-int CompareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
+int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
 {
   ///< compare pair of ITS and TPC tracks
   auto & trackTPC = tTPC.track;
@@ -545,10 +554,10 @@ TChain* initInputTPC(std::string &inputTracks)
   return ch;
 }
 
-bool PrepareTPCData()
+bool prepareTPCData()
 {
   // load next chunk of TPC data and prepare for matching
-  if (!LoadTPCData()) return false;
+  if (!loadTPCData()) return false;
   
   // copy the track params, propagate to reference X and build sector tables
   int ntr = mTPCTracksArrayInp->size();
@@ -559,8 +568,6 @@ bool PrepareTPCData()
     mTPCTimeBinStart[sec].clear();
   }
   
-  std::array<float, 3> xyz, b;
-  int nWorkTracks = 0;
   for (int it=0;it<ntr;it++) {
     
     o2::TPC::TrackTPC& trcOrig = (*mTPCTracksArrayInp)[it];
@@ -572,36 +579,22 @@ bool PrepareTPCData()
     auto & trc = mTPCWork.back();
     
     // propagate to matching Xref
-    bool refReached = false;
-    refReached = xRef<10.; // RS: tmp, to cover xRef~0
-    while ( Propagator::Instance()->PropagateToXBxByBz(trc.track,xRef) ) {
-      if (refReached) break; // RS: tmp, to cover xRef~0
-      // make sure the track is indeed within the sector defined by alpha
-      if ( fabs(trc.track.getY()) < xRef*tan(o2::Base::Constants::kSectorSpanRad/2) ) {
-	refReached = true;
-	break; // ok, within
-      }
-      auto alphaNew = Utils::Angle2Alpha(trc.track.getPhiPos());
-      if ( !trc.track.rotate( alphaNew ) != 0 ) {
-	break; // failed
-      }
-    }
-    if (!refReached) {
+    if (!propagateToRefX(trc.track)) {
       mTPCWork.pop_back(); // discard track whose propagation to xRef failed
       continue;
     }
 
     // max time increment (in time bins) to have last cluster at the Z of endcap
-    float dtZEdgeTPC = Z2TPCBin( mTPCZMax-fabs(trcOrig.getLastClusterZ()) );
+    float dtZEdgeTPC = z2TPCBin( mTPCZMax-fabs(trcOrig.getLastClusterZ()) );
     // max time decrement (in time bins) to have last cluster at the Z=0 (CE)
-    float dtZCETPC = Z2TPCBin( fabs(trcOrig.getLastClusterZ()) );
+    float dtZCETPC = z2TPCBin( fabs(trcOrig.getLastClusterZ()) );
     // RS: consider more effective narrowing
     float time0 = trcOrig.getTimeVertex(mTPCBin2Z);
     trc.timeMin = time0 - dtZCETPC - mTPCTimeEdgeTSafeMargin; 
     trc.timeMax = time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin;
 
     // cache work track index
-    mTPCSectIndexCache[Utils::Angle2Sector( trc.track.getAlpha() )].push_back( nWorkTracks++ ); 
+    mTPCSectIndexCache[Utils::Angle2Sector( trc.track.getAlpha() )].push_back( mTPCWork.size()-1 ); 
   }
 
   // sort tracks in each sector according to their timeMax
@@ -618,13 +611,13 @@ bool PrepareTPCData()
 
     // build array of 1st entries with tmax corresponding to each ITS RO cycle
     float tmax = mTPCWork[ indexCache.back() ].timeMax;
-    int nbins = 1 +  TPCTimeBin2ITSROFrame(tmax);
+    int nbins = 1 +  tpcTimeBin2ITSROFrame(tmax);
     auto &tbinStart = mTPCTimeBinStart[sec];
     tbinStart.resize( nbins>1 ? nbins : 1, -1);
     tbinStart[0] = 0;
     for (int itr=0;itr<(int)indexCache.size();itr++) {
       auto &trc = mTPCWork[ indexCache[itr] ];
-      int bTrc = TPCTimeBin2ITSROFrame(trc.timeMax);
+      int bTrc = tpcTimeBin2ITSROFrame(trc.timeMax);
       if (bTrc<0) {
 	continue;
       }
@@ -642,10 +635,11 @@ bool PrepareTPCData()
   return true;
 }
 
-bool PrepareITSData()
+//_____________________________________________________
+bool prepareITSData()
 {
   // load next chunk of ITS data and prepare for matching
-  if (!LoadITSData()) return false;
+  if (!loadITSData()) return false;
   
   int ntr = mITSTracksArrayInp->size();
   mITSWork.clear();
@@ -654,9 +648,6 @@ bool PrepareITSData()
     mITSSectIndexCache[sec].clear();
   }
 
-  std::array<float, 3> xyz, b;
-  int nWorkTracks = 0;
-  
   for (int it=0;it<ntr;it++) {
     auto& trcOrig = (*mITSTracksArrayInp)[it];
 
@@ -666,44 +657,43 @@ bool PrepareITSData()
     mITSWork.emplace_back(static_cast<TrackParCov&>(trcOrig.getParamOut()),it); // working copy of outer track param
     auto & trc = mITSWork.back();
 
+    // TODO: why I did this?
     if ( !trc.track.rotate( Utils::Angle2Alpha(trc.track.getPhiPos()) ) ) {
       mITSWork.pop_back(); // discard failed track
       continue;
-    }
+    } 
     // make sure the track is at the ref. radius
-    bool refReached = false;
-    refReached = xRef<10.; // RS: tmp, to cover xRef~0
-    while ( Propagator::Instance()->PropagateToXBxByBz(trc.track,xRef) ) {
-      if (refReached) break; // RS: tmp
-      // make sure the track is indeed within the sector defined by alpha
-      if ( fabs(trc.track.getY()) < xRef*tan(o2::Base::Constants::kSectorSpanRad/2) ) {
-	refReached = true;
-	break; // ok, within
-      }
-      auto alphaNew = Utils::Angle2Alpha(trc.track.getPhiPos());
-      if ( !trc.track.rotate( alphaNew ) != 0 ) {
-	break; // failed (RS: check effect on matching tracks to neighbouring sector)
-      }
-    }
-    if (!refReached || std::abs(trc.track.getSnp())>MaxSnp) {
+    if (!propagateToRefX(trc.track)) {
       mITSWork.pop_back(); // discard failed track
       continue; // add to cache only those ITS tracks which reached ref.X and have reasonable snp
     }
-    trc.timeMin = ITSROFrame2TPCTimeBin(trcOrig.getROFrame());
+    trc.timeMin = itsROFrame2TPCTimeBin(trcOrig.getROFrame());
     trc.timeMax = trc.timeMin + mITSROFrame2TPCBin;
     trc.roFrame = trcOrig.getROFrame();
 
     // cache work track index
     int sector = Utils::Angle2Sector( trc.track.getAlpha() );
-    mITSSectIndexCache[sector].push_back( nWorkTracks++ );
+    mITSSectIndexCache[sector].push_back( mITSWork.size()-1 );
 
     // If the ITS track is very close to the sector edge, it may match also to a TPC track in the neighbouring sector.
     // For a track with Yr and Phir at Xr the distance^2 between the poisition of this track in the neighbouring sector
     // when propagated to Xr (in this neighbouring sector) and the edge will be (neglecting the curvature)
     // [(Xr*tg(10)-Yr)/(tgPhir+tg70)]^2  / cos(70)^2  // for the next sector
     // [(Xr*tg(10)+Yr)/(tgPhir-tg70)]^2  / cos(70)^2  // for the prev sector
-    float distUp, distDn; // distances to the sector edges in neighbourings sectors (at Xref in theit proper frames)
-    
+    // Distances to the sector edges in neighbourings sectors (at Xref in theit proper frames)
+    float tgp = trc.track.getSnp();
+    tgp /= std::sqrt((1.f-tgp)*(1.f+tgp)); // tan of track direction XY
+
+    // sector up
+    float dy2Up = (yMaxAtXRef-trc.track.getY())/(tgp + Tan70);
+    if ( (dy2Up*dy2Up*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector up
+      addTrackCloneForNeighbourSector(trc, sector<(o2::Base::Constants::kNSectors-1) ? sector+1 : 0);
+    }
+    // sector down
+    float dy2Dn = (yMaxAtXRef+trc.track.getY())/(tgp - Tan70);
+    if ( (dy2Dn*dy2Dn*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector down
+      addTrackCloneForNeighbourSector(trc, sector>1 ? sector-1 : o2::Base::Constants::kNSectors-1); 
+    }
   }
   
   // sort tracks in each sector according to their time, then tgl
@@ -749,7 +739,7 @@ bool PrepareITSData()
   return true;
 }
 
-bool LoadITSData()
+bool loadITSData()
 {
   ///< load next chunk of ITS data
   while(++mCurrITSTreeEntry < chainITS->GetEntries()) {
@@ -765,7 +755,7 @@ bool LoadITSData()
   return false;
 }
 
-bool LoadTPCData()
+bool loadTPCData()
 {
   ///< load next chunk of TPC data
   while(++mCurrTPCTreeEntry < chainTPC->GetEntries()) {
@@ -870,6 +860,7 @@ float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2) //RS m
   return chi2diag + 2. * chi2ndiag;
 }
 
+//______________________________________________
 void setDebugFlag(DebugFlagTypes flag, bool on)
 {
   ///< set debug stream flag
@@ -879,4 +870,45 @@ void setDebugFlag(DebugFlagTypes flag, bool on)
   else {
     mDBGFlags &= ~flag;
   }
+}
+
+//______________________________________________
+void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector)
+{
+  // add clone of the src ITS track cashe, propagate it to ref.X in requested sector
+  // and register its index in the sector cache. Used for ITS tracks which are so close
+  // to their setctor edge that their matching should be checked also in the neighbouring sector
+  
+  mITSWork.push_back(src); // clone the track defined in given sector
+  auto &trc = mITSWork.back().track;
+  if ( trc.rotate(Utils::Sector2Angle(sector)) &&
+       Propagator::Instance()->PropagateToXBxByBz(trc,xRef)) { //TODO: use faster prop here, no 3d field, materials
+    mITSSectIndexCache[sector].push_back( mITSWork.size()-1 ); // register track CLONE
+  }
+  else {
+    mITSWork.pop_back(); // rotation / propagation failed
+  }
+}
+
+//______________________________________________
+bool propagateToRefX(o2::Base::Track::TrackParCov &trc)
+{
+  // propagate track to matching reference X, making sure its assigned alpha
+  // is consistent with TPC sector
+  bool refReached = false;
+  refReached = xRef<10.; // RS: tmp, to cover xRef~0
+  while ( Propagator::Instance()->PropagateToXBxByBz(trc,xRef) ) {
+    if (refReached) break; // RS: tmp
+    // make sure the track is indeed within the sector defined by alpha
+    if ( fabs(trc.getY()) < xRef*tan(o2::Base::Constants::kSectorSpanRad/2) ) {
+      refReached = true;
+      break; // ok, within
+    }
+    auto alphaNew = Utils::Angle2Alpha(trc.getPhiPos());
+    if ( !trc.rotate( alphaNew ) != 0 ) {
+      break; // failed (RS: check effect on matching tracks to neighbouring sector)
+    }
+  }
+  return refReached && std::abs(trc.getSnp())<MaxSnp;
+  
 }
