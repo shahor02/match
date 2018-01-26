@@ -129,8 +129,8 @@ std::unique_ptr<TreeStreamRedirector> mDBGOut;
 UInt_t mDBGFlags = 0;
 
 enum DebugFlagTypes : UInt_t {
-  MatchTreeCorrect = 0x1<<0,   ///< produce matching canditaes tree for correct candidates
-  MatchTreeAll     = 0x1<<1    ///< produce matching canditaes tree for all candidates
+  MatchTreeAll      = 0x1<<1,    ///< produce matching candidates tree for all candidates
+  MatchTreeAccOnly  = 0x1<<2     ///< fill the matching candidates tree only once the cut is passed
 };
 
 enum TrackRejFlag : int {
@@ -214,7 +214,7 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
 float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2); //const; //RS make it const
 bool propagateToRefX(o2::Base::Track::TrackParCov &trc);
 void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
-
+void fillITSTPCmatchTree(const TrackLocITS& tITS,const TrackLocTPC& tTPC, int rejFlag, float chi2=-1.);
 
 const o2fieldFast* field = nullptr;
 
@@ -255,7 +255,8 @@ void run_match(float rate = 0. // continuous or triggered mode
   logger->SetLogScreenLevel("INFO");
 
   // request debug
-  setDebugFlag(MatchTreeAll|MatchTreeCorrect,true);
+  setDebugFlag(MatchTreeAll,true);
+  //setDebugFlag(MatchTreeAccOnly,true);
   
   // Setup timer
   timer.Start();
@@ -358,6 +359,11 @@ void doMatching(int sec)
       }
       float chi2 = -1;
       int rejFlag = compareITSTPCTracks(trefITS,trefTPC,chi2);
+      
+      if ( mDBGOut && ((rejFlag==Accept && isDebugFlag(MatchTreeAccOnly)) || isDebugFlag(MatchTreeAll)) ) {
+	fillITSTPCmatchTree(trefITS,trefTPC,rejFlag, chi2);
+      }
+      
       if (rejFlag == RejectOnTgl) {
 	// ITS tracks in each ROFrame are ordered in Tgl, hence if this check failed on Tgl check
 	// (i.e. tgl_its>tgl_tpc+tolerance), tnem all other ITS tracks in this ROFrame will also have tgl too large.
@@ -432,56 +438,21 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   auto & trackTPC = tTPC.track;
   auto & trackITS = tITS.track;
   chi2 = -1.f;
+  int rejFlag = Accept;
+  float diff;   // make rough check differences and their nsigmas
   
   if (std::abs(trackTPC.getAlpha()-trackITS.getAlpha())>1e-5) {
     LOG(ERROR)<<"alpha mistmatch"<<FairLogger::endl;
     trackTPC.Print();
     trackITS.Print();
   }
-  
-  if ( mDBGOut && isDebugFlag( MatchTreeCorrect|MatchTreeAll ) ) {
-    timer.Stop();
-    o2::MCCompLabel lblITS,lblTPC;
-    if (mMCTruthON) {
-      lblITS = mITSTrkLabels->getLabels(tITS.trOrigID)[0];
-      lblTPC = mTPCTrkLabels->getLabels(tTPC.trOrigID)[0];      
-    }
-    if ( isDebugFlag( MatchTreeAll ) || (mMCTruthON && lblITS==lblTPC) ) {
-      auto chi2 = getPredictedChi2NoZ(trackITS,trackTPC);    
-      // printf("%3d/%3d [%f/%f] | %3d/%3d [%f/%f]\n",lblITS.getEventID(),lblITS.getTrackID(),
-      // 	     tITS.timeMin,tITS.timeMax,
-      // 	     lblTPC.getEventID(),lblTPC.getTrackID(),
-      // 	     tTPC.timeMin,tTPC.timeMax);
-      
-      // we need non-const versions for streamer
-      auto trackITSnc = tITS;
-      auto trackTPCnc = tTPC;
-      auto trTPCorig = (*mTPCTracksArrayInp)[tTPC.trOrigID];
-      auto trITSorig = (*mITSTracksArrayInp)[tITS.trOrigID];
-      auto chi2ITS = trITSorig.getChi2(), chi2TPC = trTPCorig.getChi2();
-      auto nclITS = trITSorig.getNumberOfClusters(), nclTPC=trTPCorig.getNClusterReferences();
-      (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITSnc.track<<"itsROF="<<trackITSnc.roFrame
-		<<"itsTMin="<<trackITSnc.timeMin<<"itsTMax="<<trackITSnc.timeMax<<"chi2ITS="<<chi2ITS<<"nclITS="<<nclITS
-		<<"tpc="<<trackTPCnc.track<<"tpcTMin="<<trackTPCnc.timeMin<<"tpcTMax="<<trackTPCnc.timeMax
-		<<"chi2TPC="<<chi2TPC<<"nclTPC="<<nclTPC;
-      if (mMCTruthON) {
-	(*mDBGOut)<<"match"<<"itsLbl="<<lblITS<<"tpcLbl="<<lblTPC;
-      }
-      (*mDBGOut)<<"match"<<"\n";
-    }
-    timer.Start(kFALSE);
-  }
-  
-  // make rough check differences and their nsigmas
-  float diff;
-  int rejFlag;
 
   // start with check on Tgl, since rjection on it will allow to profit from sorting
   diff = trackITS.getParam(Track::kTgl)-trackTPC.getParam(Track::kTgl);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kTgl], RejectOnTgl)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiagError2(Track::kTgl)+trackTPC.getDiagError2(Track::kTgl));
+  diff *= diff/(trackITS.getDiagError2(Track::kTgl)+trackTPC.getDiagError2(Track::kTgl));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kTgl], RejectOnTgl+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -490,7 +461,7 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kY], RejectOnY)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiagError2(Track::kY)+trackTPC.getDiagError2(Track::kY));
+  diff *= diff/(trackITS.getDiagError2(Track::kY)+trackTPC.getDiagError2(Track::kY));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kY], RejectOnY+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -500,7 +471,7 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
     if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kZ],RejectOnZ)) ) {
       return rejFlag;
     }
-    diff /= (trackITS.getDiagError2(Track::kZ)+trackTPC.getDiagError2(Track::kZ));
+    diff *= diff/(trackITS.getDiagError2(Track::kZ)+trackTPC.getDiagError2(Track::kZ));
     if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kZ], RejectOnZ+NSigmaShift)) ) {
       return rejFlag;
     }    
@@ -510,7 +481,7 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kSnp], RejectOnSnp)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiagError2(Track::kSnp)+trackTPC.getDiagError2(Track::kSnp));
+  diff *= diff/(trackITS.getDiagError2(Track::kSnp)+trackTPC.getDiagError2(Track::kSnp));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kSnp], RejectOnSnp+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -519,7 +490,7 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kQ2Pt], RejectOnQ2Pt)) ) {
     return rejFlag;
   }
-  diff /= (trackITS.getDiagError2(Track::kQ2Pt)+trackTPC.getDiagError2(Track::kQ2Pt));
+  diff *= diff/(trackITS.getDiagError2(Track::kQ2Pt)+trackTPC.getDiagError2(Track::kQ2Pt));
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kQ2Pt], RejectOnQ2Pt+NSigmaShift)) ) {
     return rejFlag;
   }
@@ -527,7 +498,41 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   // calculate mutual chi2 excluding Z in continuos mode
   chi2 = getPredictedChi2NoZ(tITS.track,tTPC.track);
   if (chi2>mCutChi2TPCITS) return RejectOnChi2;
+
   return Accept;
+}
+
+//_________________________________________________________
+void fillITSTPCmatchTree(const TrackLocITS& tITS,const TrackLocTPC& tTPC, int rejFlag, float chi2)
+{
+  ///< fill debug tree for ITS TPC matching check
+  timer.Stop();
+  
+  o2::MCCompLabel lblITS,lblTPC;
+  if (mMCTruthON) {
+    lblITS = mITSTrkLabels->getLabels(tITS.trOrigID)[0];
+    lblTPC = mTPCTrkLabels->getLabels(tTPC.trOrigID)[0];      
+  }
+  if (chi2<0.) { // need to recalculate
+    chi2 = getPredictedChi2NoZ(tITS.track,tTPC.track);
+  }
+  auto trackITSnc = tITS; // we need non-const versions for streamer
+  auto trackTPCnc = tTPC;
+  const auto& trTPCorig = (*mTPCTracksArrayInp)[tTPC.trOrigID];
+  const auto& trITSorig = (*mITSTracksArrayInp)[tITS.trOrigID];
+  auto chi2ITS = trITSorig.getChi2(), chi2TPC = trTPCorig.getChi2();
+  auto nclITS = trITSorig.getNumberOfClusters(), nclTPC=trTPCorig.getNClusterReferences();
+  (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITSnc.track<<"itsROF="<<trackITSnc.roFrame
+	    <<"itsTMin="<<trackITSnc.timeMin<<"itsTMax="<<trackITSnc.timeMax<<"chi2ITS="<<chi2ITS<<"nclITS="<<nclITS
+	    <<"tpc="<<trackTPCnc.track<<"tpcTMin="<<trackTPCnc.timeMin<<"tpcTMax="<<trackTPCnc.timeMax
+	    <<"chi2TPC="<<chi2TPC<<"nclTPC="<<nclTPC;
+  if (mMCTruthON) {
+    (*mDBGOut)<<"match"<<"itsLbl="<<lblITS<<"tpcLbl="<<lblTPC;
+  }
+  (*mDBGOut)<<"match"<<"rejFlag="<<rejFlag<<"\n";
+
+  timer.Start(kFALSE);
+
 }
 
 
@@ -731,7 +736,7 @@ bool prepareITSData()
 		else if (trackA.roFrame > trackB.roFrame) { 
 		  return false;
 		}
-		return (trackA.track.getTgl() - trackB.track.getTgl()) < 0.;
+		return trackA.track.getTgl() < trackB.track.getTgl();
 	      });
     
     // build array of 1st entries with of each ITS RO cycle
