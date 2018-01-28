@@ -37,6 +37,8 @@
 #include <vector>
 #endif
 
+#define _ALLOW_DEBUG_TREES_ // uncomment this to produce debug/tuning trees
+
 TStopwatch timer;
 
 
@@ -53,25 +55,54 @@ using namespace o2::Base::Track;
 using namespace o2::TPC;
 using namespace o2::ITS;
 
+///< flags to tell the status of TPC-ITS tracks comparison
+enum TrackRejFlag : int {
+  Accept = 0,
+  RejectOnY,   // rejected comparing DY difference of tracks
+  RejectOnZ,
+  RejectOnSnp,
+  RejectOnTgl,
+  RejectOnQ2Pt,
+  RejectOnChi2,
+  NSigmaShift = 10  
+};
 
+///< TPC track parameters propagated to reference X, with time bracket and index of
+///< original track in the currently loaded TPC reco output
 struct TrackLocTPC {
   TrackParCov track;
-  int trOrigID = -1; 
-  float timeMin = 0.f;
-  float timeMax = 0.f;
+  int trOrigID = -1;   ///< index of the original TPC track in the currently loaded TPC reco output 
+  float timeMin = 0.f; ///< min. possible time (in TPC time-bin units)
+  float timeMax = 0.f; ///< max. possible time (in TPC time-bin units)
   TrackLocTPC(const TrackParCov& src, int id) : track(src),trOrigID(id) {}
   ClassDefNV(TrackLocTPC,1);
 };
 
+///< ITS track outward parameters propagated to reference X, with time bracket and index of
+///< original track in the currently loaded ITS reco output
 struct TrackLocITS {
   TrackParCov track;
-  int trOrigID = -1;
-  int roFrame = -1;
-  float timeMin = 0.f;
-  float timeMax = 0.f;
+  int trOrigID = -1;    ///< index of the original ITS track in the currently loaded ITS reco output 
+  int roFrame = -1;     ///< ITS readout frame assigned to this track
+  float timeMin = 0.f;  ///< min. possible time (in TPC time-bin units)
+  float timeMax = 0.f;  ///< max. possible time (in TPC time-bin units)
   TrackLocITS(const TrackParCov& src, int id) : track(src),trOrigID(id) {}
   ClassDefNV(TrackLocITS,1);
 };
+
+///< record of single ITS track matching to given TPC track and reference on
+///< the match record of the same TPC track 
+struct MatchRecord {
+  static const int Dummy; ///< flag dummy index, must be negative
+  float chi2 = -1.f;           ///< matching chi2
+  int itsOrigID = Dummy;       ///< index of the original ITS track in the currently loaded ITS reco output 
+  int nextRecID = Dummy;       ///< index of eventual next record
+  MatchRecord(int id, float chi2match) : itsOrigID(id), chi2(chi2match) {}
+  MatchRecord(int id, float chi2match, int nxt) : itsOrigID(id), chi2(chi2match), nextRecID(nxt) {}
+  ClassDefNV(MatchRecord,1);
+};
+
+const int MatchRecord::Dummy = -1;
 
 int mCurrTPCTreeEntry=-1; ///< current TPC tree entry loaded to memory
 int mCurrITSTreeEntry=-1; ///< current ITS tree entry loaded to memory
@@ -125,24 +156,41 @@ float mTPCZMax = 0.;
 float mTimeBinTolerance = 10.; ///<tolerance in time-bin for ITS-TPC time bracket matching
 
 bool mMCTruthON = false;
-std::unique_ptr<TreeStreamRedirector> mDBGOut;
-UInt_t mDBGFlags = 0;
+
+///>>>------ these are input arrays which should not be modified by the matching code
+//           since this info is provided by external device
+std::vector<o2::ITS::CookedTrack> *mITSTracksArrayInp = nullptr;             ///<input tracks
+std::vector<o2::TPC::TrackTPC> *mTPCTracksArrayInp = nullptr;                ///<input tracks
+
+o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mITSTrkLabels = nullptr; ///< ITS Track MC labels
+o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< TPC Track MC labels
+/// <<<-----
+
+std::vector<int> mMatchRecordID; ///< refs on 1st matchRecord in mMatchRecords of each TPC track
+std::vector<MatchRecord> mMatchRecords; ///< match records pool
+int mMaxMatchCandidates = 5; ///< max allowed matching candidates per TPC track
+
+using PointF = Point3D<float>;
+
+std::vector<TrackLocTPC> mTPCWork; ///<TPC track params prepared for matching
+std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching
+std::array<std::vector<int>,o2::Base::Constants::kNSectors> mTPCSectIndexCache;
+std::array<std::vector<int>,o2::Base::Constants::kNSectors> mITSSectIndexCache;
+
+ ///<indices of 1st entries with time-bin above the value
+std::array<std::vector<int>,o2::Base::Constants::kNSectors> mTPCTimeBinStart;
+///<indices of 1st entries of ITS tracks with givem ROframe
+std::array<std::vector<int>,o2::Base::Constants::kNSectors> mITSTimeBinStart; 
+
+#ifdef _ALLOW_DEBUG_TREES_
 
 enum DebugFlagTypes : UInt_t {
   MatchTreeAll      = 0x1<<1,    ///< produce matching candidates tree for all candidates
   MatchTreeAccOnly  = 0x1<<2     ///< fill the matching candidates tree only once the cut is passed
 };
 
-enum TrackRejFlag : int {
-  Accept = 0,
-  RejectOnY,   // rejected comparing DY difference of tracks
-  RejectOnZ,
-  RejectOnSnp,
-  RejectOnTgl,
-  RejectOnQ2Pt,
-  RejectOnChi2,
-  NSigmaShift = 10  
-};
+std::unique_ptr<TreeStreamRedirector> mDBGOut;
+UInt_t mDBGFlags = 0;
 
 ///< check if partucular flags are set
 bool isDebugFlag(UInt_t flags) { return mDBGFlags & flags; }
@@ -152,6 +200,19 @@ void setDebugFlag(UInt_t flag, bool on=true);
 
 ///< get debug trees flags
 UInt_t getDebugFlags() { return mDBGFlags; }
+
+#endif
+
+///< get number of matching records for TPC track
+int getNMatchRecords(int tpcTrackID)
+{
+  int count = 0, recID = mMatchRecordID[tpcTrackID];
+  while (recID!=MatchRecord::Dummy) {
+    recID = mMatchRecords[recID].nextRecID;
+    count++;
+  }
+  return count;
+}
 
 ///< set ITS RO Frame, TPC time bin duration in microseconds and TPC nominal VDrift
 void setTPCITSParams(float itsROFrame, float tpcTBin, float tpcVDrift, float tpcZMax)
@@ -211,35 +272,18 @@ bool loadITSData();
 void doMatching();
 void doMatching(int sec);
 int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
+bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
 float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2); //const; //RS make it const
 bool propagateToRefX(o2::Base::Track::TrackParCov &trc);
 void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
 void fillITSTPCmatchTree(const TrackLocITS& tITS,const TrackLocTPC& tTPC, int rejFlag, float chi2=-1.);
 
+void printCandidates(); // temporary
+
+
 const o2fieldFast* field = nullptr;
 
 
-
-///>>>------ these are input arrays which should not be modified by the matching code, but by IO only
-std::vector<o2::ITS::CookedTrack> *mITSTracksArrayInp = nullptr;
-std::vector<o2::TPC::TrackTPC> *mTPCTracksArrayInp = nullptr;  ///<input tracks
-
-o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mITSTrkLabels = nullptr; ///< ITS Track MC labels
-o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< TPC Track MC labels
-/// <<<-----
-
-
-using PointF = Point3D<float>;
-
-std::vector<TrackLocTPC> mTPCWork; ///<TPC track params prepared for matching
-std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching
-std::array<std::vector<int>,o2::Base::Constants::kNSectors> mTPCSectIndexCache;
-std::array<std::vector<int>,o2::Base::Constants::kNSectors> mITSSectIndexCache;
-
- ///<indices of 1st entries with time-bin above the value
-std::array<std::vector<int>,o2::Base::Constants::kNSectors> mTPCTimeBinStart;
-///<indices of 1st entries of ITS tracks with givem ROframe
-std::array<std::vector<int>,o2::Base::Constants::kNSectors> mITSTimeBinStart; 
 
 void run_match(float rate = 0. // continuous or triggered mode
 	       ,std::string outputfile="o2match_itstpc.root"
@@ -255,16 +299,19 @@ void run_match(float rate = 0. // continuous or triggered mode
   logger->SetLogScreenLevel("INFO");
 
   // request debug
+#ifdef _ALLOW_DEBUG_TREES_
   setDebugFlag(MatchTreeAll,true);
   //setDebugFlag(MatchTreeAccOnly,true);
-  
+#endif
   // Setup timer
   timer.Start();
 
+#ifdef _ALLOW_DEBUG_TREES_
   // debug streamer
   if (mDBGFlags) {
     mDBGOut = std::make_unique<TreeStreamRedirector>("dbg_match.root","recreate");
   }
+#endif
   
   // load geometry and field
   initSimGeomAndField(inputGeom,inputGRP);
@@ -295,12 +342,16 @@ void run_match(float rate = 0. // continuous or triggered mode
     while(prepareITSData()) {    
       doMatching();
     }
+    printCandidates();
   }
 
   timer.Stop();
   timer.Print();
   
+#ifdef _ALLOW_DEBUG_TREES_
   mDBGOut.reset();
+#endif
+
 }
 
 
@@ -345,7 +396,7 @@ void doMatching(int sec)
     // estimate ITS 1st ROframe bin this track may match to: TPC track are sorted according to their
     // timeMax, hence the timeMax - MaxmNTPCBinsFullDrift are non-decreasing
     int itsROBin = tpcTimeBin2ITSROFrame(trefTPC.timeMax - maxTDriftSafe);
-    if (itsROBin>=tbinStartITS.size()) { // time of TPC track exceeds the max time of ITS in the cache
+    if (itsROBin>=int(tbinStartITS.size())) { // time of TPC track exceeds the max time of ITS in the cache
       break;
     }
     int iits0 = tbinStartITS[itsROBin];    
@@ -359,24 +410,26 @@ void doMatching(int sec)
       }
       float chi2 = -1;
       int rejFlag = compareITSTPCTracks(trefITS,trefTPC,chi2);
-      
+
+#ifdef _ALLOW_DEBUG_TREES_      
       if ( mDBGOut && ((rejFlag==Accept && isDebugFlag(MatchTreeAccOnly)) || isDebugFlag(MatchTreeAll)) ) {
 	fillITSTPCmatchTree(trefITS,trefTPC,rejFlag, chi2);
       }
+#endif
       
       if (rejFlag == RejectOnTgl) {
 	// ITS tracks in each ROFrame are ordered in Tgl, hence if this check failed on Tgl check
 	// (i.e. tgl_its>tgl_tpc+tolerance), tnem all other ITS tracks in this ROFrame will also have tgl too large.
 	// Jump on the 1st ITS track of the next ROFrame
 	int nextROF = trefITS.roFrame+1;
-	if ( nextROF >=  tbinStartITS.size()) { // no more ITS ROFrames in cache
+	if ( nextROF >= int(tbinStartITS.size()) ) { // no more ITS ROFrames in cache
 	  break;
 	}
-	printf("JUMP from %d to %d\n",iits, tbinStartITS[nextROF]-1);
-	iits = tbinStartITS[nextROF]-1;  // next track to be checked 
+	iits = tbinStartITS[nextROF]-1;  // next track to be checked -1
 	continue;
       }
       if (rejFlag!=Accept) continue;
+      registerMatchRecord(trefITS,trefTPC,chi2);// register matching candidate
     }
     
   }
@@ -432,6 +485,55 @@ void doMatching(int sec)
 }
 */
 
+//______________________________________________
+bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
+{
+  ///< record matching candidate, making sure that number of candidates per TPC track, sorted
+  ///< in matching chi2 does not exceed allowed number
+  const int OverrideExisting = MatchRecord::Dummy-100;
+  int nextID = mMatchRecordID[tTPC.trOrigID]; // best matchRecord entry in the mMatchRecords
+  if (nextID == MatchRecord::Dummy) { // no matches yet, just add new record 
+    mMatchRecordID[tTPC.trOrigID] = mMatchRecords.size(); // register new record as top one
+    mMatchRecords.emplace_back(tITS.trOrigID, chi2); // create new record with empty reference on next match
+    return true;
+  }
+  int count=0, topID=MatchRecord::Dummy;
+  do {
+    auto& nextMatchRec = mMatchRecords[nextID];
+    count++;
+    if (chi2<nextMatchRec.chi2) { // need to insert new record before nextMatchRec?
+      if (count<mMaxMatchCandidates) {
+	break; // will insert in front of nextID
+      }
+      else { // max number of candidates reached, will overwrite the last one
+	nextMatchRec.chi2 = chi2;
+	nextMatchRec.itsOrigID = tITS.trOrigID;
+	nextID = OverrideExisting; // to flag overriding existing candidate
+	break;
+      }
+    }
+    topID = nextID; // register better parent
+    nextID = nextMatchRec.nextRecID;
+  } while (nextID!=MatchRecord::Dummy);
+
+  // if count == mMaxMatchCandidates, the max number of candidates was already reached, and the
+  // new candidated was either discarded (if its chi2 is worst one) or has overwritten worst
+  // existing candidate. Otherwise, we need to add new entry
+  if (count<mMaxMatchCandidates) {
+    if (topID==MatchRecord::Dummy) { // the new match one is top candidate
+      mMatchRecordID[tTPC.trOrigID] = mMatchRecords.size(); // register new record as top one
+    }
+    else { // there are better candidates
+      mMatchRecords[topID].nextRecID =  mMatchRecords.size(); // register to his parent
+    }
+    // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
+    mMatchRecords.emplace_back(tITS.trOrigID, chi2, nextID); // create new record with empty reference on next match
+    return true; 
+  }
+  return nextID==OverrideExisting; // unless nextID was assigned OverrideExisting, new candidate was discarded
+}
+
+//______________________________________________
 int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
 {
   ///< compare pair of ITS and TPC tracks
@@ -502,6 +604,19 @@ int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& 
   return Accept;
 }
 
+#ifdef _ALLOW_DEBUG_TREES_
+//______________________________________________
+void setDebugFlag(UInt_t flag, bool on)
+{
+  ///< set debug stream flag
+  if (on) {
+    mDBGFlags |= flag;
+  }
+  else {
+    mDBGFlags &= ~flag;
+  }
+}
+
 //_________________________________________________________
 void fillITSTPCmatchTree(const TrackLocITS& tITS,const TrackLocTPC& tTPC, int rejFlag, float chi2)
 {
@@ -532,9 +647,8 @@ void fillITSTPCmatchTree(const TrackLocITS& tITS,const TrackLocTPC& tTPC, int re
   (*mDBGOut)<<"match"<<"rejFlag="<<rejFlag<<"\n";
 
   timer.Start(kFALSE);
-
 }
-
+#endif
 
 TChain* initInputITS(std::string &inputTracks)
 {
@@ -570,13 +684,21 @@ TChain* initInputTPC(std::string &inputTracks)
 bool prepareTPCData()
 {
   // load next chunk of TPC data and prepare for matching
+  mMatchRecordID.clear();
+  mMatchRecords.clear();
+  
   timer.Stop();
   if (!loadTPCData()) {
     timer.Start(kFALSE);
     return false;
   }
   timer.Start(kFALSE);
-  
+
+  // prepare empty matching records for each TPC track
+  mMatchRecordID.resize(mTPCTracksArrayInp->size(),MatchRecord::Dummy);
+  // number of records might be actually more than N tracks!
+  mMatchRecords.reserve(mTPCTracksArrayInp->size()); 
+
   // copy the track params, propagate to reference X and build sector tables
   int ntr = mTPCTracksArrayInp->size();
   mTPCWork.clear();
@@ -884,18 +1006,6 @@ float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2) //RS m
 }
 
 //______________________________________________
-void setDebugFlag(UInt_t flag, bool on)
-{
-  ///< set debug stream flag
-  if (on) {
-    mDBGFlags |= flag;
-  }
-  else {
-    mDBGFlags &= ~flag;
-  }
-}
-
-//______________________________________________
 void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector)
 {
   // add clone of the src ITS track cashe, propagate it to ref.X in requested sector
@@ -934,4 +1044,19 @@ bool propagateToRefX(o2::Base::Track::TrackParCov &trc)
   }
   return refReached && std::abs(trc.getSnp())<MaxSnp;
   
+}
+
+void printCandidates() // temporary
+{
+  for (int itr=0;itr<mTPCTracksArrayInp->size();itr++) {
+    int nrec = getNMatchRecords(itr);
+    printf("*** trackTPC#%5d : Ncand = %d\n",itr,nrec);
+    int count=0, recID = mMatchRecordID[itr];
+    while (recID!=MatchRecord::Dummy) {
+      auto& rec = mMatchRecords[recID];
+      printf("  * cand %2d : ITS track %5d Chi2: %f\n",count,rec.itsOrigID,rec.chi2);
+      recID = mMatchRecords[recID].nextRecID;
+      count++;
+    }
+  }
 }
