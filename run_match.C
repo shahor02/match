@@ -71,10 +71,11 @@ enum TrackRejFlag : int {
 ///< original track in the currently loaded TPC reco output
 struct TrackLocTPC {
   TrackParCov track;
-  int trOrigID = -1;   ///< index of the original TPC track in the currently loaded TPC reco output 
+  int trOrigID = -1;   ///< original index of the TPC track in the input packet (tree entry)
   float timeMin = 0.f; ///< min. possible time (in TPC time-bin units)
   float timeMax = 0.f; ///< max. possible time (in TPC time-bin units)
-  TrackLocTPC(const TrackParCov& src, int id) : track(src),trOrigID(id) {}
+  TrackLocTPC(const TrackParCov& src, int trid) : track(src),trOrigID(trid) {}
+  TrackLocTPC() = default;
   ClassDefNV(TrackLocTPC,1);
 };
 
@@ -82,11 +83,13 @@ struct TrackLocTPC {
 ///< original track in the currently loaded ITS reco output
 struct TrackLocITS {
   TrackParCov track;
-  int trOrigID = -1;    ///< index of the original ITS track in the currently loaded ITS reco output 
+  int trOrigID = -1;    ///< original index of the ITS track in the input packet (tree entry)
+  int eventID = -1;     ///< packet (tree entry) this track belongs to
   int roFrame = -1;     ///< ITS readout frame assigned to this track
   float timeMin = 0.f;  ///< min. possible time (in TPC time-bin units)
   float timeMax = 0.f;  ///< max. possible time (in TPC time-bin units)
-  TrackLocITS(const TrackParCov& src, int id) : track(src),trOrigID(id) {}
+  TrackLocITS(const TrackParCov& src, int trid, int evid) : track(src),trOrigID(trid),eventID(evid) {}
+  TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
 };
 
@@ -95,10 +98,13 @@ struct TrackLocITS {
 struct MatchRecord {
   static const int Dummy; ///< flag dummy index, must be negative
   float chi2 = -1.f;           ///< matching chi2
-  int itsOrigID = Dummy;       ///< index of the original ITS track in the currently loaded ITS reco output 
+  int trOrigID = Dummy;        ///< original index of the track in its packet (tree entry)
+  int eventID = Dummy;         ///< packet (tree entry) the track belongs to
   int nextRecID = Dummy;       ///< index of eventual next record
-  MatchRecord(int id, float chi2match) : itsOrigID(id), chi2(chi2match) {}
-  MatchRecord(int id, float chi2match, int nxt) : itsOrigID(id), chi2(chi2match), nextRecID(nxt) {}
+  MatchRecord(int trid, int evid, float chi2match) :
+    trOrigID(trid), eventID(evid), chi2(chi2match) {}
+  MatchRecord(int trid, int evid, float chi2match, int nxt) :
+    trOrigID(trid), eventID(evid), chi2(chi2match), nextRecID(nxt) {}
   ClassDefNV(MatchRecord,1);
 };
 
@@ -107,12 +113,10 @@ const int MatchRecord::Dummy = -1;
 int mCurrTPCTreeEntry=-1; ///< current TPC tree entry loaded to memory
 int mCurrITSTreeEntry=-1; ///< current ITS tree entry loaded to memory
 
-const float xTPCInnerRef = 80.0; ///< reference radius at which TPC provides the tracks 
-const float xRef = 70.0;
-const float yMaxAtXRef = xRef*std::tan(o2::Base::Constants::kSectorSpanRad*0.5); ///< max Y in the sector at reference X
-//const float xRef = 70.0;
-const float rMaxITS = 39.3; ///<RS??
-const float zMaxITS = 85.; ///<with margin RS??
+const float mXTPCInnerRef = 80.0; ///< reference radius at which TPC provides the tracks 
+const float mXRef = 70.0;
+const float mYMaxAtXRef = mXRef*std::tan(o2::Base::Constants::kSectorSpanRad*0.5); ///< max Y in the sector at reference X
+//const float mXRef = 70.0;
 
 float mCrudeAbsDiff[Track::kNParams] = {2., 2., 0.2, 0.2, 4.}; ///<tolerance on abs. different of ITS/TPC params
 float mCrudeNSigma[Track::kNParams] = {49.,49.,49.,49.,49.}; ///<tolerance on per-component ITS/TPC params NSigma
@@ -141,7 +145,7 @@ constexpr float MaxSnp = 0.85;
 constexpr float MaxTgp = 1.61357f; // max tg corresponting to MaxSnp = MaxSnp/std::sqrt((1.-MaxSnp)*(1.+MaxSnp));
 //constexpr float Max;
 
-TChain *chainITS=nullptr, *chainTPC=nullptr;
+TChain *mChainITS=nullptr, *mChainTPC=nullptr;
 
 float mITSROFrame = 0.; ///< ITS RO frame in \mus
 float mTPCVDrift0 = 0.; ///< TPC nominal drift speed in cm/microseconds
@@ -162,18 +166,19 @@ bool mMCTruthON = false;
 std::vector<o2::ITS::CookedTrack> *mITSTracksArrayInp = nullptr;             ///<input tracks
 std::vector<o2::TPC::TrackTPC> *mTPCTracksArrayInp = nullptr;                ///<input tracks
 
-o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mITSTrkLabels = nullptr; ///< ITS Track MC labels
-o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< TPC Track MC labels
+o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mITSTrkLabels = nullptr; ///< input ITS Track MC labels
+o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< input TPC Track MC labels
 /// <<<-----
 
 std::vector<int> mMatchRecordID; ///< refs on 1st matchRecord in mMatchRecords of each TPC track
 std::vector<MatchRecord> mMatchRecords; ///< match records pool
 int mMaxMatchCandidates = 5; ///< max allowed matching candidates per TPC track
 
-using PointF = Point3D<float>;
-
 std::vector<TrackLocTPC> mTPCWork; ///<TPC track params prepared for matching
 std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching
+std::vector<o2::MCCompLabel> mTPCLblWork; ///<TPC track labels
+std::vector<o2::MCCompLabel> mITSLblWork; ///<ITS track labels
+
 std::array<std::vector<int>,o2::Base::Constants::kNSectors> mTPCSectIndexCache;
 std::array<std::vector<int>,o2::Base::Constants::kNSectors> mITSSectIndexCache;
 
@@ -276,7 +281,7 @@ bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float&
 float getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2); //const; //RS make it const
 bool propagateToRefX(o2::Base::Track::TrackParCov &trc);
 void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
-void fillITSTPCmatchTree(const TrackLocITS& tITS,const TrackLocTPC& tTPC, int rejFlag, float chi2=-1.);
+void fillITSTPCmatchTree(int itsID,int tpcID, int rejFlag, float chi2=-1.);
 
 void printCandidates(); // temporary
 
@@ -319,7 +324,7 @@ void run_match(float rate = 0. // continuous or triggered mode
   fieldSlow->AllowFastField(true);
   field = fieldSlow->getFastField();
 
-  // ================= DIFFEREN INITS HERE =======================
+  // ================= DIFFERENT INITS HERE =======================
   
   // set ITS and TPC time bin units in \mus
   const ParameterGas &gasParam = ParameterGas::defaultInstance();
@@ -334,8 +339,8 @@ void run_match(float rate = 0. // continuous or triggered mode
   // rotated to this sector and propagated to Xref 
   mSectEdgeMargin2 = mCrudeAbsDiff[Track::kY]*mCrudeAbsDiff[Track::kY];
   
-  chainITS = initInputITS(inputTracksITS);
-  chainTPC = initInputTPC(inputTracksTPC);
+  mChainITS = initInputITS(inputTracksITS);
+  mChainTPC = initInputTPC(inputTracksTPC);
   mMCTruthON = (mITSTrkLabels && mTPCTrkLabels);
   
   while(prepareTPCData()) {
@@ -413,7 +418,7 @@ void doMatching(int sec)
 
 #ifdef _ALLOW_DEBUG_TREES_      
       if ( mDBGOut && ((rejFlag==Accept && isDebugFlag(MatchTreeAccOnly)) || isDebugFlag(MatchTreeAll)) ) {
-	fillITSTPCmatchTree(trefITS,trefTPC,rejFlag, chi2);
+	fillITSTPCmatchTree(cacheITS[iits],cacheTPC[itpc],rejFlag, chi2);
       }
 #endif
       
@@ -494,7 +499,7 @@ bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float&
   int nextID = mMatchRecordID[tTPC.trOrigID]; // best matchRecord entry in the mMatchRecords
   if (nextID == MatchRecord::Dummy) { // no matches yet, just add new record 
     mMatchRecordID[tTPC.trOrigID] = mMatchRecords.size(); // register new record as top one
-    mMatchRecords.emplace_back(tITS.trOrigID, chi2); // create new record with empty reference on next match
+    mMatchRecords.emplace_back(tITS.trOrigID, tITS.eventID, chi2); // create new record with empty reference on next match
     return true;
   }
   int count=0, topID=MatchRecord::Dummy;
@@ -507,7 +512,8 @@ bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float&
       }
       else { // max number of candidates reached, will overwrite the last one
 	nextMatchRec.chi2 = chi2;
-	nextMatchRec.itsOrigID = tITS.trOrigID;
+	nextMatchRec.trOrigID = tITS.trOrigID;
+	nextMatchRec.eventID = tITS.eventID;
 	nextID = OverrideExisting; // to flag overriding existing candidate
 	break;
       }
@@ -527,7 +533,7 @@ bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float&
       mMatchRecords[topID].nextRecID =  mMatchRecords.size(); // register to his parent
     }
     // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
-    mMatchRecords.emplace_back(tITS.trOrigID, chi2, nextID); // create new record with empty reference on next match
+    mMatchRecords.emplace_back(tITS.trOrigID,tITS.eventID, chi2, nextID); // create new record with empty reference on next match
     return true; 
   }
   return nextID==OverrideExisting; // unless nextID was assigned OverrideExisting, new candidate was discarded
@@ -618,30 +624,21 @@ void setDebugFlag(UInt_t flag, bool on)
 }
 
 //_________________________________________________________
-void fillITSTPCmatchTree(const TrackLocITS& tITS,const TrackLocTPC& tTPC, int rejFlag, float chi2)
+void fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float chi2)
 {
-  ///< fill debug tree for ITS TPC matching check
+  ///< fill debug tree for ITS TPC tracks matching check
   timer.Stop();
-  
-  o2::MCCompLabel lblITS,lblTPC;
-  if (mMCTruthON) {
-    lblITS = mITSTrkLabels->getLabels(tITS.trOrigID)[0];
-    lblTPC = mTPCTrkLabels->getLabels(tTPC.trOrigID)[0];      
-  }
+  // Note: we cannot use (auto &) here since need non-const versions of the tracks
+  auto trackITSnc = mITSWork[ itsID ]; // ITS track copy
+  auto trackTPCnc = mTPCWork[ tpcID ]; // TPC track copy
   if (chi2<0.) { // need to recalculate
-    chi2 = getPredictedChi2NoZ(tITS.track,tTPC.track);
+    chi2 = getPredictedChi2NoZ(trackITSnc.track,trackTPCnc.track);
   }
-  auto trackITSnc = tITS; // we need non-const versions for streamer
-  auto trackTPCnc = tTPC;
-  const auto& trTPCorig = (*mTPCTracksArrayInp)[tTPC.trOrigID];
-  const auto& trITSorig = (*mITSTracksArrayInp)[tITS.trOrigID];
-  auto chi2ITS = trITSorig.getChi2(), chi2TPC = trTPCorig.getChi2();
-  auto nclITS = trITSorig.getNumberOfClusters(), nclTPC=trTPCorig.getNClusterReferences();
-  (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITSnc.track<<"itsROF="<<trackITSnc.roFrame
-	    <<"itsTMin="<<trackITSnc.timeMin<<"itsTMax="<<trackITSnc.timeMax<<"chi2ITS="<<chi2ITS<<"nclITS="<<nclITS
-	    <<"tpc="<<trackTPCnc.track<<"tpcTMin="<<trackTPCnc.timeMin<<"tpcTMax="<<trackTPCnc.timeMax
-	    <<"chi2TPC="<<chi2TPC<<"nclTPC="<<nclTPC;
+  o2::MCCompLabel lblITS,lblTPC;
+  (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITSnc<<"tpc="<<trackTPCnc;
   if (mMCTruthON) {
+    lblITS = mITSLblWork[itsID];
+    lblTPC = mTPCLblWork[tpcID];
     (*mDBGOut)<<"match"<<"itsLbl="<<lblITS<<"tpcLbl="<<lblTPC;
   }
   (*mDBGOut)<<"match"<<"rejFlag="<<rejFlag<<"\n";
@@ -703,6 +700,10 @@ bool prepareTPCData()
   int ntr = mTPCTracksArrayInp->size();
   mTPCWork.clear();
   mTPCWork.reserve(ntr);
+  if (mMCTruthON) {
+    mTPCLblWork.clear();
+    mTPCLblWork.reserve(ntr);    
+  }
   for (int sec=o2::Base::Constants::kNSectors;sec--;) {
     mTPCSectIndexCache[sec].clear();
     mTPCTimeBinStart[sec].clear();
@@ -713,17 +714,18 @@ bool prepareTPCData()
     o2::TPC::TrackTPC& trcOrig = (*mTPCTracksArrayInp)[it];
 
     // make sure the track was propagated to inner TPC radius at the ref. radius
-    if (trcOrig.getX()>xTPCInnerRef+0.1) continue; // failed propagation to inner TPC radius, cannot be matched
+    if (trcOrig.getX()>mXTPCInnerRef+0.1) continue; // failed propagation to inner TPC radius, cannot be matched
 
     mTPCWork.emplace_back(static_cast<TrackParCov&>(trcOrig),it); // working copy of track param
-    auto & trc = mTPCWork.back();
-    
+    auto & trc = mTPCWork.back();    
     // propagate to matching Xref
     if (!propagateToRefX(trc.track)) {
-      mTPCWork.pop_back(); // discard track whose propagation to xRef failed
+      mTPCWork.pop_back(); // discard track whose propagation to mXRef failed
       continue;
     }
-
+    if (mMCTruthON) {
+      mTPCLblWork.emplace_back(  mTPCTrkLabels->getLabels(it)[0] );
+    }
     // max time increment (in time bins) to have last cluster at the Z of endcap
     float dtZEdgeTPC = z2TPCBin( mTPCZMax-fabs(trcOrig.getLastClusterZ()) );
     // max time decrement (in time bins) to have last cluster at the Z=0 (CE)
@@ -789,6 +791,10 @@ bool prepareITSData()
   int ntr = mITSTracksArrayInp->size();
   mITSWork.clear();
   mITSWork.reserve(ntr*1.3); // tracks close to sector edge may require extra copies
+  if (mMCTruthON) {
+    mITSLblWork.clear();
+    mITSLblWork.reserve(ntr*1.3);
+  }
   for (int sec=o2::Base::Constants::kNSectors;sec--;) {
     mITSSectIndexCache[sec].clear();
   }
@@ -799,7 +805,8 @@ bool prepareITSData()
     if (trcOrig.getParamOut().getX()<1.) {
       continue; // backward refit failed
     }
-    mITSWork.emplace_back(static_cast<TrackParCov&>(trcOrig.getParamOut()),it); // working copy of outer track param
+    // working copy of outer track param
+    mITSWork.emplace_back(static_cast<TrackParCov&>(trcOrig.getParamOut()),it,mCurrITSTreeEntry);
     auto & trc = mITSWork.back();
 
     // TODO: why I did this?
@@ -812,6 +819,10 @@ bool prepareITSData()
       mITSWork.pop_back(); // discard failed track
       continue; // add to cache only those ITS tracks which reached ref.X and have reasonable snp
     }
+    if (mMCTruthON) {
+      mITSLblWork.emplace_back( mITSTrkLabels->getLabels(it)[0] );
+    }
+
     trc.timeMin = itsROFrame2TPCTimeBin(trcOrig.getROFrame());
     trc.timeMax = trc.timeMin + mITSROFrame2TPCBin;
     trc.roFrame = trcOrig.getROFrame();
@@ -830,12 +841,12 @@ bool prepareITSData()
     tgp /= std::sqrt((1.f-tgp)*(1.f+tgp)); // tan of track direction XY
 
     // sector up
-    float dy2Up = (yMaxAtXRef-trc.track.getY())/(tgp + Tan70);
+    float dy2Up = (mYMaxAtXRef-trc.track.getY())/(tgp + Tan70);
     if ( (dy2Up*dy2Up*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector up
       addTrackCloneForNeighbourSector(trc, sector<(o2::Base::Constants::kNSectors-1) ? sector+1 : 0);
     }
     // sector down
-    float dy2Dn = (yMaxAtXRef+trc.track.getY())/(tgp - Tan70);
+    float dy2Dn = (mYMaxAtXRef+trc.track.getY())/(tgp - Tan70);
     if ( (dy2Dn*dy2Dn*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector down
       addTrackCloneForNeighbourSector(trc, sector>1 ? sector-1 : o2::Base::Constants::kNSectors-1); 
     }
@@ -887,8 +898,8 @@ bool prepareITSData()
 bool loadITSData()
 {
   ///< load next chunk of ITS data
-  while(++mCurrITSTreeEntry < chainITS->GetEntries()) {
-    chainITS->GetEntry(mCurrITSTreeEntry);
+  while(++mCurrITSTreeEntry < mChainITS->GetEntries()) {
+    mChainITS->GetEntry(mCurrITSTreeEntry);
     LOG(INFO)<<"Starting ITS entry "<<mCurrITSTreeEntry<<" -> "
 	     <<mITSTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (!mITSTracksArrayInp->size()) {
@@ -903,8 +914,8 @@ bool loadITSData()
 bool loadTPCData()
 {
   ///< load next chunk of TPC data
-  while(++mCurrTPCTreeEntry < chainTPC->GetEntries()) {
-    chainTPC->GetEntry(mCurrTPCTreeEntry);
+  while(++mCurrTPCTreeEntry < mChainTPC->GetEntries()) {
+    mChainTPC->GetEntry(mCurrTPCTreeEntry);
     LOG(INFO)<<"Starting TPC entry "<<mCurrTPCTreeEntry<<" -> "
 	     <<mTPCTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (mTPCTracksArrayInp->size()<1) {
@@ -1015,8 +1026,11 @@ void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector)
   mITSWork.push_back(src); // clone the track defined in given sector
   auto &trc = mITSWork.back().track;
   if ( trc.rotate(Utils::Sector2Angle(sector)) &&
-       Propagator::Instance()->PropagateToXBxByBz(trc,xRef)) { //TODO: use faster prop here, no 3d field, materials
+       Propagator::Instance()->PropagateToXBxByBz(trc,mXRef)) { //TODO: use faster prop here, no 3d field, materials
     mITSSectIndexCache[sector].push_back( mITSWork.size()-1 ); // register track CLONE
+    if (mMCTruthON) {
+      mITSLblWork.emplace_back( mITSTrkLabels->getLabels(src.trOrigID)[0] );
+    }
   }
   else {
     mITSWork.pop_back(); // rotation / propagation failed
@@ -1029,11 +1043,11 @@ bool propagateToRefX(o2::Base::Track::TrackParCov &trc)
   // propagate track to matching reference X, making sure its assigned alpha
   // is consistent with TPC sector
   bool refReached = false;
-  refReached = xRef<10.; // RS: tmp, to cover xRef~0
-  while ( Propagator::Instance()->PropagateToXBxByBz(trc,xRef) ) {
+  refReached = mXRef<10.; // RS: tmp, to cover mXRef~0
+  while ( Propagator::Instance()->PropagateToXBxByBz(trc,mXRef) ) {
     if (refReached) break; // RS: tmp
     // make sure the track is indeed within the sector defined by alpha
-    if ( fabs(trc.getY()) < xRef*tan(o2::Base::Constants::kSectorSpanRad/2) ) {
+    if ( fabs(trc.getY()) < mXRef*tan(o2::Base::Constants::kSectorSpanRad/2) ) {
       refReached = true;
       break; // ok, within
     }
@@ -1054,7 +1068,7 @@ void printCandidates() // temporary
     int count=0, recID = mMatchRecordID[itr];
     while (recID!=MatchRecord::Dummy) {
       auto& rec = mMatchRecords[recID];
-      printf("  * cand %2d : ITS track %5d Chi2: %f\n",count,rec.itsOrigID,rec.chi2);
+      printf("  * cand %2d : ITS track %5d(%4d) Chi2: %f\n",count,rec.trOrigID,rec.eventID,rec.chi2);
       recID = mMatchRecords[recID].nextRecID;
       count++;
     }

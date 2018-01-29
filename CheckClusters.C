@@ -10,7 +10,7 @@
 #include <TString.h>
 
 #include "ITSMFTSimulation/Hit.h"
-#include "DetectorsBase/Utils.h"
+#include "MathUtils/Utils.h"
 #include "MathUtils/Cartesian3D.h"
 #include "ITSBase/GeometryTGeo.h"
 #include "ITSMFTReconstruction/Cluster.h"
@@ -19,7 +19,7 @@
 #endif
 
 void CheckClusters() {
-  using namespace o2::Base;
+  using namespace o2;
   using namespace o2::ITS;
 
   using o2::ITSMFT::Hit;
@@ -35,7 +35,7 @@ void CheckClusters() {
   gFile->Get("FairGeoParSet");
   
   auto gman =  o2::ITS::GeometryTGeo::Instance();
-  gman->fillMatrixCache( Utils::bit2Mask(TransformType::T2L, TransformType::T2GRot, TransformType::L2G) ); // request cached transforms
+  gman->fillMatrixCache( utils::bit2Mask(TransformType::T2L, TransformType::T2GRot, TransformType::L2G) ); // request cached transforms
   
   // Hits
   sprintf(filename, "o2sim.root");
