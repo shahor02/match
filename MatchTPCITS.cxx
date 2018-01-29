@@ -29,11 +29,10 @@
 #include "TPCBase/ParameterDetector.h"
 #include "TPCBase/ParameterGas.h"
 #include "MathUtils/Cartesian3D.h"
-#include "DetectorsBase/Utils.h"
-#include "DetectorsBase/Constants.h"
-#include "DetectorsBase/GeometryManager.h"
-
+#include "MathUtils/Utils.h"
+#include "CommonConstants/MathConstants.h"
 #include "CommonConstants/PhysicsConstants.h"
+#include "DetectorsBase/GeometryManager.h"
 
 #include <Math/SMatrix.h>
 #include <Math/SVector.h>
@@ -44,11 +43,6 @@
 #include "MatchTPCITS.h"
 
 using namespace o2::globaltracking;
-using namespace o2::utils;
-using namespace o2::Base;
-using namespace o2::Base::Track;
-using namespace o2::TPC;
-using namespace o2::ITS;
 
 using MatrixDSym4 = ROOT::Math::SMatrix<double, 4, 4, ROOT::Math::MatRepSym<double, 4>>;
 using MatrixD4 = ROOT::Math::SMatrix<double, 4, 4, ROOT::Math::MatRepStd<double, 4>>;
@@ -66,7 +60,7 @@ void MatchTPCITS::run()
   
   while(prepareTPCData()) {
     while(prepareITSData()) {
-      for (int  sec=o2::Base::Constants::kNSectors;sec--;) {
+      for (int  sec=o2::constants::math::NSectors;sec--;) {
 	doMatching(sec);
       }
     }
@@ -89,12 +83,12 @@ void MatchTPCITS::init()
     LOG(ERROR)<<"Initialization was already done"<<FairLogger::endl;
     return;
   }
-  mYMaxAtXRef = mXRef*std::tan(o2::Base::Constants::kSectorSpanRad*0.5); ///< max Y in the sector at reference X
-  mSectEdgeMargin2 = mCrudeAbsDiff[Track::kY]*mCrudeAbsDiff[Track::kY]; ///< precalculated ^2
+  mYMaxAtXRef = mXRef*std::tan(o2::constants::math::SectorSpanRad*0.5); ///< max Y in the sector at reference X
+  mSectEdgeMargin2 = mCrudeAbsDiff[o2::track::kY]*mCrudeAbsDiff[o2::track::kY]; ///< precalculated ^2
 
-  const ParameterGas &gasParam = ParameterGas::defaultInstance();
-  const ParameterElectronics &elParam = ParameterElectronics::defaultInstance();
-  const ParameterDetector& detParam = ParameterDetector::defaultInstance();
+  const auto & gasParam = o2::TPC::ParameterGas::defaultInstance();
+  const auto & elParam = o2::TPC::ParameterElectronics::defaultInstance();
+  const auto & detParam = o2::TPC::ParameterDetector::defaultInstance();
   float tpcTBin = elParam.getZBinWidth();
   mTPCVDrift0 = gasParam.getVdrift();
   mTPCZMax = detParam.getTPClength();
@@ -203,7 +197,7 @@ bool MatchTPCITS::prepareTPCData()
     mTPCLblWork.clear();
     mTPCLblWork.reserve(ntr);    
   }
-  for (int sec=o2::Base::Constants::kNSectors;sec--;) {
+  for (int sec=o2::constants::math::NSectors;sec--;) {
     mTPCSectIndexCache[sec].clear();
     mTPCTimeBinStart[sec].clear();
   }
@@ -215,7 +209,7 @@ bool MatchTPCITS::prepareTPCData()
     // make sure the track was propagated to inner TPC radius at the ref. radius
     if (trcOrig.getX()>mXTPCInnerRef+0.1) continue; // failed propagation to inner TPC radius, cannot be matched
 
-    mTPCWork.emplace_back(static_cast<TrackParCov&>(trcOrig),it); // working copy of track param
+    mTPCWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig),it); // working copy of track param
     auto & trc = mTPCWork.back();    
     // propagate to matching Xref
     if (!propagateToRefX(trc.track)) {
@@ -235,11 +229,11 @@ bool MatchTPCITS::prepareTPCData()
     trc.timeMax = time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin;
 
     // cache work track index
-    mTPCSectIndexCache[Utils::Angle2Sector( trc.track.getAlpha() )].push_back( mTPCWork.size()-1 ); 
+    mTPCSectIndexCache[o2::utils::Angle2Sector( trc.track.getAlpha() )].push_back( mTPCWork.size()-1 ); 
   }
 
   // sort tracks in each sector according to their timeMax
-  for (int sec=o2::Base::Constants::kNSectors; sec--;) {
+  for (int sec=o2::constants::math::NSectors; sec--;) {
     auto &indexCache = mTPCSectIndexCache[sec];
     LOG(INFO) <<"Sorting "<<sec<<" | "<<indexCache.size()<<" TPC tracks"<<FairLogger::endl;
     if (!indexCache.size()) continue;
@@ -294,7 +288,7 @@ bool MatchTPCITS::prepareITSData()
     mITSLblWork.clear();
     mITSLblWork.reserve(ntr*1.3);
   }
-  for (int sec=o2::Base::Constants::kNSectors;sec--;) {
+  for (int sec=o2::constants::math::NSectors;sec--;) {
     mITSSectIndexCache[sec].clear();
   }
 
@@ -305,11 +299,11 @@ bool MatchTPCITS::prepareITSData()
       continue; // backward refit failed
     }
     // working copy of outer track param
-    mITSWork.emplace_back(static_cast<TrackParCov&>(trcOrig.getParamOut()),it,mCurrITSTreeEntry);
+    mITSWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig.getParamOut()),it,mCurrITSTreeEntry);
     auto & trc = mITSWork.back();
 
     // TODO: why I did this?
-    if ( !trc.track.rotate( Utils::Angle2Alpha(trc.track.getPhiPos()) ) ) {
+    if ( !trc.track.rotate( o2::utils::Angle2Alpha(trc.track.getPhiPos()) ) ) {
       mITSWork.pop_back(); // discard failed track
       continue;
     } 
@@ -327,7 +321,7 @@ bool MatchTPCITS::prepareITSData()
     trc.roFrame = trcOrig.getROFrame();
 
     // cache work track index
-    int sector = Utils::Angle2Sector( trc.track.getAlpha() );
+    int sector = o2::utils::Angle2Sector( trc.track.getAlpha() );
     mITSSectIndexCache[sector].push_back( mITSWork.size()-1 );
 
     // If the ITS track is very close to the sector edge, it may match also to a TPC track in the neighbouring sector.
@@ -342,17 +336,17 @@ bool MatchTPCITS::prepareITSData()
     // sector up
     float dy2Up = (mYMaxAtXRef-trc.track.getY())/(tgp + Tan70);
     if ( (dy2Up*dy2Up*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector up
-      addTrackCloneForNeighbourSector(trc, sector<(o2::Base::Constants::kNSectors-1) ? sector+1 : 0);
+      addTrackCloneForNeighbourSector(trc, sector<(o2::constants::math::NSectors-1) ? sector+1 : 0);
     }
     // sector down
     float dy2Dn = (mYMaxAtXRef+trc.track.getY())/(tgp - Tan70);
     if ( (dy2Dn*dy2Dn*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector down
-      addTrackCloneForNeighbourSector(trc, sector>1 ? sector-1 : o2::Base::Constants::kNSectors-1); 
+      addTrackCloneForNeighbourSector(trc, sector>1 ? sector-1 : o2::constants::math::NSectors-1); 
     }
   }
   
   // sort tracks in each sector according to their time, then tgl
-  for (int sec=o2::Base::Constants::kNSectors; sec--;) {
+  for (int sec=o2::constants::math::NSectors; sec--;) {
     auto &indexCache = mITSSectIndexCache[sec];
     LOG(INFO) <<"Sorting "<<sec<<" | "<<indexCache.size()<<" ITS tracks"<<FairLogger::endl;
     if (!indexCache.size()) {
@@ -517,50 +511,50 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
   }
 
   // start with check on Tgl, since rjection on it will allow to profit from sorting
-  diff = trackITS.getParam(Track::kTgl)-trackTPC.getParam(Track::kTgl);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kTgl], RejectOnTgl)) ) {
+  diff = trackITS.getParam(o2::track::kTgl)-trackTPC.getParam(o2::track::kTgl);
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kTgl], RejectOnTgl)) ) {
     return rejFlag;
   }
-  diff *= diff/(trackITS.getDiagError2(Track::kTgl)+trackTPC.getDiagError2(Track::kTgl));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kTgl], RejectOnTgl+NSigmaShift)) ) {
+  diff *= diff/(trackITS.getDiagError2(o2::track::kTgl)+trackTPC.getDiagError2(o2::track::kTgl));
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kTgl], RejectOnTgl+NSigmaShift)) ) {
     return rejFlag;
   }
 
-  diff = trackITS.getParam(Track::kY)-trackTPC.getParam(Track::kY);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kY], RejectOnY)) ) {
+  diff = trackITS.getParam(o2::track::kY)-trackTPC.getParam(o2::track::kY);
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kY], RejectOnY)) ) {
     return rejFlag;
   }
-  diff *= diff/(trackITS.getDiagError2(Track::kY)+trackTPC.getDiagError2(Track::kY));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kY], RejectOnY+NSigmaShift)) ) {
+  diff *= diff/(trackITS.getDiagError2(o2::track::kY)+trackTPC.getDiagError2(o2::track::kY));
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kY], RejectOnY+NSigmaShift)) ) {
     return rejFlag;
   }
   
   if (mCompareTracksDZ) { // in continuous mode we usually don't use DZ
-    diff = trackITS.getParam(Track::kZ)-trackTPC.getParam(Track::kZ);
-    if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kZ],RejectOnZ)) ) {
+    diff = trackITS.getParam(o2::track::kZ)-trackTPC.getParam(o2::track::kZ);
+    if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kZ],RejectOnZ)) ) {
       return rejFlag;
     }
-    diff *= diff/(trackITS.getDiagError2(Track::kZ)+trackTPC.getDiagError2(Track::kZ));
-    if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kZ], RejectOnZ+NSigmaShift)) ) {
+    diff *= diff/(trackITS.getDiagError2(o2::track::kZ)+trackTPC.getDiagError2(o2::track::kZ));
+    if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kZ], RejectOnZ+NSigmaShift)) ) {
       return rejFlag;
     }    
   }
 
-  diff = trackITS.getParam(Track::kSnp)-trackTPC.getParam(Track::kSnp);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kSnp], RejectOnSnp)) ) {
+  diff = trackITS.getParam(o2::track::kSnp)-trackTPC.getParam(o2::track::kSnp);
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kSnp], RejectOnSnp)) ) {
     return rejFlag;
   }
-  diff *= diff/(trackITS.getDiagError2(Track::kSnp)+trackTPC.getDiagError2(Track::kSnp));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kSnp], RejectOnSnp+NSigmaShift)) ) {
+  diff *= diff/(trackITS.getDiagError2(o2::track::kSnp)+trackTPC.getDiagError2(o2::track::kSnp));
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kSnp], RejectOnSnp+NSigmaShift)) ) {
     return rejFlag;
   }
   
-  diff = trackITS.getParam(Track::kQ2Pt)-trackTPC.getParam(Track::kQ2Pt);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[Track::kQ2Pt], RejectOnQ2Pt)) ) {
+  diff = trackITS.getParam(o2::track::kQ2Pt)-trackTPC.getParam(o2::track::kQ2Pt);
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kQ2Pt], RejectOnQ2Pt)) ) {
     return rejFlag;
   }
-  diff *= diff/(trackITS.getDiagError2(Track::kQ2Pt)+trackTPC.getDiagError2(Track::kQ2Pt));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[Track::kQ2Pt], RejectOnQ2Pt+NSigmaShift)) ) {
+  diff *= diff/(trackITS.getDiagError2(o2::track::kQ2Pt)+trackTPC.getDiagError2(o2::track::kQ2Pt));
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kQ2Pt], RejectOnQ2Pt+NSigmaShift)) ) {
     return rejFlag;
   }
 
@@ -588,7 +582,7 @@ void MatchTPCITS::printCandidates() const // temporary
 }
 
 //______________________________________________
-float MatchTPCITS::getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov& tr2) const
+float MatchTPCITS::getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const
 {
   /// get chi2 between 2 tracks, neglecting Z parameter.
   /// 2 tracks must be defined at the same parameters X,alpha (check is currently commented)
@@ -596,12 +590,12 @@ float MatchTPCITS::getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov
   //  if (std::abs(tr1.getAlpha() - tr2.getAlpha()) > FLT_EPSILON) {
   //    LOG(ERROR) << "The reference Alpha of the tracks differ: "
   //	       << tr1.getAlpha() << " : " << tr2.getAlpha() << FairLogger::endl;
-  //    return 2. * HugeF;
+  //    return 2. * o2::track::HugeF;
   //  }
   //  if (std::abs(tr1.getX() - tr2.getX()) > FLT_EPSILON) {
   //    LOG(ERROR) << "The reference X of the tracks differ: "
   //	       << tr1.getX() << " : " << tr2.getX() << FairLogger::endl;
-  //    return 2. * HugeF;
+  //    return 2. * o2::track::HugeF;
   //  }
   MatrixDSym4 covMat;
   covMat(0, 0) = static_cast<double>(tr1.getSigmaY2())     + static_cast<double>(tr2.getSigmaY2());
@@ -616,15 +610,15 @@ float MatchTPCITS::getPredictedChi2NoZ(const TrackParCov& tr1, const TrackParCov
   covMat(3, 3) = static_cast<double>(tr1.getSigma1Pt2())   + static_cast<double>(tr2.getSigma1Pt2());
   if (!covMat.Invert()) {
     LOG(ERROR) << "Cov.matrix inversion failed: " << covMat << FairLogger::endl;
-    return 2. * HugeF;
+    return 2. * o2::track::HugeF;
   }
-  double chi2diag = 0., chi2ndiag = 0., diff[Track::kNParams-1] = {
-    tr1.getParam(Track::kY)    - tr2.getParam(Track::kY),
-    tr1.getParam(Track::kSnp)  - tr2.getParam(Track::kSnp),
-    tr1.getParam(Track::kTgl)  - tr2.getParam(Track::kTgl),
-    tr1.getParam(Track::kQ2Pt) - tr2.getParam(Track::kQ2Pt)
+  double chi2diag = 0., chi2ndiag = 0., diff[o2::track::kNParams-1] = {
+    tr1.getParam(o2::track::kY)    - tr2.getParam(o2::track::kY),
+    tr1.getParam(o2::track::kSnp)  - tr2.getParam(o2::track::kSnp),
+    tr1.getParam(o2::track::kTgl)  - tr2.getParam(o2::track::kTgl),
+    tr1.getParam(o2::track::kQ2Pt) - tr2.getParam(o2::track::kQ2Pt)
   };
-  for (int i = Track::kNParams-1; i--;) {
+  for (int i = o2::track::kNParams-1; i--;) {
     chi2diag += diff[i] * diff[i] * covMat(i, i);
     for (int j = i; j--;) {
       chi2ndiag += diff[i] * diff[j] * covMat(i, j);

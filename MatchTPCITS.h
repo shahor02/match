@@ -50,11 +50,11 @@ enum TrackRejFlag : int {
 ///< TPC track parameters propagated to reference X, with time bracket and index of
 ///< original track in the currently loaded TPC reco output
 struct TrackLocTPC {
-  o2::Base::Track::TrackParCov track;
+  o2::track::TrackParCov track;
   int trOrigID = -1;   ///< original index of the TPC track in the input packet (tree entry)
   float timeMin = 0.f; ///< min. possible time (in TPC time-bin units)
   float timeMax = 0.f; ///< max. possible time (in TPC time-bin units)
-  TrackLocTPC(const o2::Base::Track::TrackParCov& src, int trid) : track(src),trOrigID(trid) {}
+  TrackLocTPC(const o2::track::TrackParCov& src, int trid) : track(src),trOrigID(trid) {}
   TrackLocTPC() = default;
   ClassDefNV(TrackLocTPC,1);
 };
@@ -62,13 +62,13 @@ struct TrackLocTPC {
 ///< ITS track outward parameters propagated to reference X, with time bracket and index of
 ///< original track in the currently loaded ITS reco output
 struct TrackLocITS {
-  o2::Base::Track::TrackParCov track;
+  o2::track::TrackParCov track;
   int trOrigID = -1;    ///< original index of the ITS track in the input packet (tree entry)
   int eventID = -1;     ///< packet (tree entry) this track belongs to
   int roFrame = -1;     ///< ITS readout frame assigned to this track
   float timeMin = 0.f;  ///< min. possible time (in TPC time-bin units)
   float timeMax = 0.f;  ///< max. possible time (in TPC time-bin units)
-  TrackLocITS(const o2::Base::Track::TrackParCov& src, int trid, int evid) : track(src),trOrigID(trid),eventID(evid) {}
+  TrackLocITS(const o2::track::TrackParCov& src, int trid, int evid) : track(src),trOrigID(trid),eventID(evid) {}
   TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
 };
@@ -134,8 +134,8 @@ class MatchTPCITS {
   void doMatching(int sec);
   int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2) const;
   bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
-  float getPredictedChi2NoZ(const o2::Base::Track::TrackParCov& tr1, const o2::Base::Track::TrackParCov& tr2) const;
-  bool propagateToRefX(o2::Base::Track::TrackParCov &trc);
+  float getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const;
+  bool propagateToRefX(o2::track::TrackParCov &trc);
   void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
   void printCandidates() const; // temporary
 
@@ -180,9 +180,9 @@ class MatchTPCITS {
   bool mCompareTracksDZ = false;
   
   ///<tolerance on abs. different of ITS/TPC params
-  std::array<float,o2::Base::Track::kNParams> mCrudeAbsDiff = {2.f, 2.f, 0.2f, 0.2f, 4.f};
+  std::array<float,o2::track::kNParams> mCrudeAbsDiff = {2.f, 2.f, 0.2f, 0.2f, 4.f};
   ///<tolerance on per-component ITS/TPC params NSigma
-  std::array<float,o2::Base::Track::kNParams> mCrudeNSigma = {49.f,49.f,49.f,49.f,49.f};
+  std::array<float,o2::track::kNParams> mCrudeNSigma = {49.f,49.f,49.f,49.f,49.f};
   float mCutChi2TPCITS = 200.f;  ///< cut on matching chi2
   float mSectEdgeMargin2 = 0.;   ///< crude check if ITS track should be matched also in neighbouring sector
 
@@ -232,14 +232,14 @@ class MatchTPCITS {
   std::vector<o2::MCCompLabel> mITSLblWork; ///<ITS track labels
 
   ///< per sector indices of TPC track entry in mTPCWork 
-  std::array<std::vector<int>,o2::Base::Constants::kNSectors> mTPCSectIndexCache;
+  std::array<std::vector<int>,o2::constants::math::NSectors> mTPCSectIndexCache;
   ///< per sector indices of ITS track entry in mITSWork 
-  std::array<std::vector<int>,o2::Base::Constants::kNSectors> mITSSectIndexCache;
+  std::array<std::vector<int>,o2::constants::math::NSectors> mITSSectIndexCache;
 
   ///<indices of 1st entries with time-bin above the value
-  std::array<std::vector<int>,o2::Base::Constants::kNSectors> mTPCTimeBinStart;
+  std::array<std::vector<int>,o2::constants::math::NSectors> mTPCTimeBinStart;
   ///<indices of 1st entries of ITS tracks with givem ROframe
-  std::array<std::vector<int>,o2::Base::Constants::kNSectors> mITSTimeBinStart; 
+  std::array<std::vector<int>,o2::constants::math::NSectors> mITSTimeBinStart; 
 
   std::string mITSTrackBranchName = "ITSTrack"; ///< name of branch containing input ITS tracks
   std::string mTPCTrackBranchName = "Tracks";    ///< name of branch containing input TPC tracks
@@ -255,7 +255,7 @@ class MatchTPCITS {
   ///----------- aux stuff --------------///
   static constexpr float TolerSortTime = 0.1; ///<tolerance for comparison of 2 tracks times
   static constexpr float TolerSortTgl = 1e-4; ///<tolerance for comparison of 2 tracks tgl
-  static constexpr float Tan70 = 2.74747771e+00; // tg(70 degree): std::tan(70.*o2::Base::Constants::kPI/180.);
+  static constexpr float Tan70 = 2.74747771e+00; // tg(70 degree): std::tan(70.*o2::constants::math::PI/180.);
   static constexpr float Cos70I2 = 1.+Tan70*Tan70; // 1/cos^2(70) = 1 + tan^2(70)
   static constexpr float MaxSnp = 0.85;
   static constexpr float MaxTgp = 1.61357f; // max tg corresponting to MaxSnp = MaxSnp/std::sqrt((1.-MaxSnp)*(1.+MaxSnp));
