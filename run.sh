@@ -10,6 +10,6 @@ root -b -q run_trac_its.C\($rate\) >& rec_its.log
 
 #root -b -q runCATracking.C >& rec_tpc.log
 
-root -l -b -q ~/alice/O2/Detectors/TPC/reconstruction/macro/convertClusterToClusterHardware.C'++g("o2clus.root","o2clusTPC_HW.root")'  #convert old clusters to ClusterHardware
-root -l -b -q ~/alice/O2/Detectors/TPC/reconstruction/macro/runHardwareClusterDecoderRoot.C'++g("o2clusTPC_HW.root","o2clusTPC_Native.root")'   #convert ClusterHardware to ClusterNative
-root -l -b -q ~/alice/O2/Detectors/TPC/reconstruction/macro/runCATrackingClusterNative.C'++g("o2clusTPC_Native.root", "tracksFromNative.root", "cont refX=80 bz=-5.0068597793")'     #Run tracking on ClusterNative type
+root -l -b -q ~/alice/O2/Detectors/TPC/reconstruction/macro/convertClusterToClusterHardware.C'++g("o2clus.root","o2clusTPC_HW.root")' >& convOls2HW.log #convert old clusters to ClusterHardware
+root -l -b -q ~/alice/O2/Detectors/TPC/reconstruction/macro/runHardwareClusterDecoderRoot.C'++g("o2clusTPC_HW.root","o2clusTPC_Native.root")' >& convHV2Native.log  #convert ClusterHardware to ClusterNative
+root -l -b -q ~/alice/O2/Detectors/TPC/reconstruction/macro/runCATrackingClusterNative.C'++g("o2clusTPC_Native.root", "tracksFromNative.root", "cont refX=80 bz=-5.0068597793")' >& tpcTracking.log     #Run tracking on ClusterNative type
