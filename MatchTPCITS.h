@@ -105,7 +105,13 @@ class MatchTPCITS {
   ///< get number of matching records for TPC track
   int getNMatchRecords(int tpcTrackID) const;
 
+  ///< set chain containing ITS tracks 
+  void setInputChainITS(TChain* chain) { mChainITS = chain;}
 
+  ///< set chain containing TPC tracks 
+  void setInputChainTPC(TChain* chain) { mChainTPC = chain;}
+
+  
 #ifdef _ALLOW_DEBUG_TREES_
   enum DebugFlagTypes : UInt_t {
     MatchTreeAll      = 0x1<<1,    ///< produce matching candidates tree for all candidates

@@ -627,6 +627,30 @@ float MatchTPCITS::getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const 
   return chi2diag + 2. * chi2ndiag;
 }
 
+//______________________________________________
+bool MatchTPCITS::propagateToRefX(o2::track::TrackParCov &trc)
+{
+  // propagate track to matching reference X, making sure its assigned alpha
+  // is consistent with TPC sector
+  bool refReached = false;
+  refReached = mXRef<10.; // RS: tmp, to cover mXRef~0
+  while ( o2::Base::Propagator::Instance()->PropagateToXBxByBz(trc,mXRef) ) {
+    if (refReached) break; // RS: tmp
+    // make sure the track is indeed within the sector defined by alpha
+    if ( fabs(trc.getY()) < mXRef*tan(o2::constants::math::SectorSpanRad/2) ) {
+      refReached = true;
+      break; // ok, within
+    }
+    auto alphaNew = o2::utils::Angle2Alpha(trc.getPhiPos());
+    if ( !trc.rotate( alphaNew ) != 0 ) {
+      break; // failed (RS: check effect on matching tracks to neighbouring sector)
+    }
+  }
+  return refReached && std::abs(trc.getSnp())<MaxSnp;
+  
+}
+
+
 
 #ifdef _ALLOW_DEBUG_TREES_
 //______________________________________________
@@ -646,14 +670,13 @@ void MatchTPCITS::fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float c
 {
   ///< fill debug tree for ITS TPC tracks matching check
   mTimer.Stop();
-  // Note: we cannot use (auto &) here since need non-const versions of the tracks
-  auto trackITSnc = mITSWork[ itsID ]; // ITS track copy
-  auto trackTPCnc = mTPCWork[ tpcID ]; // TPC track copy
+  auto &trackITS = mITSWork[ itsID ];
+  auto &trackTPC = mTPCWork[ tpcID ];
   if (chi2<0.) { // need to recalculate
-    chi2 = getPredictedChi2NoZ(trackITSnc.track,trackTPCnc.track);
+    chi2 = getPredictedChi2NoZ(trackITS.track,trackTPC.track);
   }
   o2::MCCompLabel lblITS,lblTPC;
-  (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITSnc<<"tpc="<<trackTPCnc;
+  (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITS<<"tpc="<<trackTPC;
   if (mMCTruthON) {
     lblITS = mITSLblWork[itsID];
     lblTPC = mTPCLblWork[tpcID];

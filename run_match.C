@@ -627,14 +627,13 @@ void fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float chi2)
 {
   ///< fill debug tree for ITS TPC tracks matching check
   timer.Stop();
-  // Note: we cannot use (auto &) here since need non-const versions of the tracks
-  auto trackITSnc = mITSWork[ itsID ]; // ITS track copy
-  auto trackTPCnc = mTPCWork[ tpcID ]; // TPC track copy
+  auto &trackITS = mITSWork[ itsID ]; // ITS track copy
+  auto &trackTPC = mTPCWork[ tpcID ]; // TPC track copy
   if (chi2<0.) { // need to recalculate
-    chi2 = getPredictedChi2NoZ(trackITSnc.track,trackTPCnc.track);
+    chi2 = getPredictedChi2NoZ(trackITS.track,trackTPC.track);
   }
   o2::MCCompLabel lblITS,lblTPC;
-  (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITSnc<<"tpc="<<trackTPCnc;
+  (*mDBGOut)<<"match"<<"chi2Match="<<chi2<<"its="<<trackITS<<"tpc="<<trackTPC;
   if (mMCTruthON) {
     lblITS = mITSLblWork[itsID];
     lblTPC = mTPCLblWork[tpcID];
