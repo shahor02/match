@@ -20,17 +20,29 @@
 #include <vector>
 #include <string>
 #include <TStopwatch.h>
-#include "DetectorsBase/Track.h"
+#include "ReconstructionDataFormats/Track.h"
+#include "SimulationDataFormat/MCCompLabel.h"
 
 class TChain;
 
 namespace o2
 {
 
-namespace ITS {  class CookedTrack; }
-namespace TPC {  class TrackTPC; }
+namespace dataformats
+{
+template <typename TruthElement>
+class MCTruthContainer;
+}
  
- class MCCompLabel;
+namespace ITS
+{
+class CookedTrack;
+}
+
+namespace TPC
+{
+class TrackTPC;
+}
  
 namespace globaltracking
 {
