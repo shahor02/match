@@ -22,7 +22,6 @@
 
 #include "DetectorsBase/Propagator.h"
 #include "CommonUtils/TreeStream.h"
-#include "CommonUtils/TreeStreamRedirector.h"
 
 #include "TPCBase/Defs.h"
 #include "TPCBase/ParameterElectronics.h"
@@ -108,7 +107,7 @@ void MatchTPCITS::init()
 #ifdef _ALLOW_DEBUG_TREES_
   // debug streamer
   if (mDBGFlags) {
-    mDBGOut = std::make_unique<TreeStreamRedirector>("dbg_match.root","recreate");
+    mDBGOut = std::make_unique<o2::utils::TreeStreamRedirector>(mDebugTreeFileName.data(),"recreate");
   }
 #endif
 
@@ -495,6 +494,55 @@ void MatchTPCITS::doMatching(int sec)
 }
 
 //______________________________________________
+bool MatchTPCITS::registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
+{
+  ///< record matching candidate, making sure that number of candidates per TPC track, sorted
+  ///< in matching chi2 does not exceed allowed number
+  const int OverrideExisting = MatchRecord::Dummy-100;
+  int nextID = mMatchRecordID[tTPC.trOrigID]; // best matchRecord entry in the mMatchRecords
+  if (nextID == MatchRecord::Dummy) { // no matches yet, just add new record 
+    mMatchRecordID[tTPC.trOrigID] = mMatchRecords.size(); // register new record as top one
+    mMatchRecords.emplace_back(tITS.trOrigID, tITS.eventID, chi2); // create new record with empty reference on next match
+    return true;
+  }
+  int count=0, topID=MatchRecord::Dummy;
+  do {
+    auto& nextMatchRec = mMatchRecords[nextID];
+    count++;
+    if (chi2<nextMatchRec.chi2) { // need to insert new record before nextMatchRec?
+      if (count<mMaxMatchCandidates) {
+	break; // will insert in front of nextID
+      }
+      else { // max number of candidates reached, will overwrite the last one
+	nextMatchRec.chi2 = chi2;
+	nextMatchRec.trOrigID = tITS.trOrigID;
+	nextMatchRec.eventID = tITS.eventID;
+	nextID = OverrideExisting; // to flag overriding existing candidate
+	break;
+      }
+    }
+    topID = nextID; // register better parent
+    nextID = nextMatchRec.nextRecID;
+  } while (nextID!=MatchRecord::Dummy);
+
+  // if count == mMaxMatchCandidates, the max number of candidates was already reached, and the
+  // new candidated was either discarded (if its chi2 is worst one) or has overwritten worst
+  // existing candidate. Otherwise, we need to add new entry
+  if (count<mMaxMatchCandidates) {
+    if (topID==MatchRecord::Dummy) { // the new match one is top candidate
+      mMatchRecordID[tTPC.trOrigID] = mMatchRecords.size(); // register new record as top one
+    }
+    else { // there are better candidates
+      mMatchRecords[topID].nextRecID =  mMatchRecords.size(); // register to his parent
+    }
+    // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
+    mMatchRecords.emplace_back(tITS.trOrigID,tITS.eventID, chi2, nextID); // create new record with empty reference on next match
+    return true; 
+  }
+  return nextID==OverrideExisting; // unless nextID was assigned OverrideExisting, new candidate was discarded
+}
+
+//______________________________________________
 int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2) const
 {
   ///< compare pair of ITS and TPC tracks
@@ -628,6 +676,27 @@ float MatchTPCITS::getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const 
 }
 
 //______________________________________________
+void MatchTPCITS::addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector)
+{
+  // add clone of the src ITS track cashe, propagate it to ref.X in requested sector
+  // and register its index in the sector cache. Used for ITS tracks which are so close
+  // to their setctor edge that their matching should be checked also in the neighbouring sector
+  
+  mITSWork.push_back(src); // clone the track defined in given sector
+  auto &trc = mITSWork.back().track;
+  if ( trc.rotate(o2::utils::Sector2Angle(sector)) &&
+       o2::Base::Propagator::Instance()->PropagateToXBxByBz(trc,mXRef)) { //TODO: use faster prop here, no 3d field, materials
+    mITSSectIndexCache[sector].push_back( mITSWork.size()-1 ); // register track CLONE
+    if (mMCTruthON) {
+      mITSLblWork.emplace_back( mITSTrkLabels->getLabels(src.trOrigID)[0] );
+    }
+  }
+  else {
+    mITSWork.pop_back(); // rotation / propagation failed
+  }
+}
+
+//______________________________________________
 bool MatchTPCITS::propagateToRefX(o2::track::TrackParCov &trc)
 {
   // propagate track to matching reference X, making sure its assigned alpha
@@ -654,7 +723,7 @@ bool MatchTPCITS::propagateToRefX(o2::track::TrackParCov &trc)
 
 #ifdef _ALLOW_DEBUG_TREES_
 //______________________________________________
-void setDebugFlag(UInt_t flag, bool on)
+void MatchTPCITS::setDebugFlag(UInt_t flag, bool on)
 {
   ///< set debug stream flag
   if (on) {

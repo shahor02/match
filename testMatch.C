@@ -35,6 +35,10 @@ void testMatch(std::string outputfile="o2match_itstpc.root"
   
   //-------------------- settings -----------//
   matching.setITSROFrame(10.0f); // ITS ROFrame duration
+
+
+  // require debug tree output
+  matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAll,true);
   
   matching.init();
 

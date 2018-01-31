@@ -15,6 +15,8 @@
 #ifndef ALICEO2_GLOBTRACKING_MATCHTPCITS_
 #define ALICEO2_GLOBTRACKING_MATCHTPCITS_
 
+#define _ALLOW_DEBUG_TREES_ // to allow debug and control tree output
+
 #include <Rtypes.h>
 #include <array>
 #include <vector>
@@ -22,6 +24,7 @@
 #include <TStopwatch.h>
 #include "ReconstructionDataFormats/Track.h"
 #include "SimulationDataFormat/MCCompLabel.h"
+#include "CommonUtils/TreeStreamRedirector.h"
 
 class TChain;
 
@@ -138,6 +141,16 @@ class MatchTPCITS {
   ///< set or unset debug stream flag
   void setDebugFlag(UInt_t flag, bool on=true);
 
+  ///< set the name of output debug file
+  void setDebugTreeFileName(std::string name) {
+    if (!name.empty()) {
+      mDebugTreeFileName = name;
+    }
+  }
+
+  ///< get the name of output debug file
+  const std::string& getDebugTreeFileName() const {return mDebugTreeFileName;}
+  
   ///< fill matching debug tree
   void fillITSTPCmatchTree(int itsID,int tpcID, int rejFlag, float chi2=-1.);
 #endif
@@ -265,8 +278,9 @@ class MatchTPCITS {
   std::string mTPCMCTruthBranchName = "TracksMCTruth"; ///< name of branch containing input TPC tracks
   
 #ifdef _ALLOW_DEBUG_TREES_
-  std::unique_ptr<TreeStreamRedirector> mDBGOut;
+  std::unique_ptr<o2::utils::TreeStreamRedirector> mDBGOut;
   UInt_t mDBGFlags = 0;
+  std::string mDebugTreeFileName = "dbg_match.root"; ///< name for the debug tree file
 #endif
  
 
