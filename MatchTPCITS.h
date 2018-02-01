@@ -121,7 +121,7 @@ struct TrackLocITS {
 /// RS: at the moment matchTPC and matchITS are similar, but may diverge in future
  
 ///< each TPC track having at least 1 matching ITS candidate records in matchTPC the
-///< the ID of the 1st (best) matchRecordTPC in the mMatchRecordsTPC container
+///< the ID of the 1st (best) matchRecord in the mMatchRecordsTPC container
 struct matchTPC {
   trackOrigin source;        ///< track origin id
   int first = DummyID;  ///< 1st match for this track in the mMatchRecordsTPC
@@ -138,23 +138,16 @@ struct matchITS {
   matchITS() = default;
 };
  
-///< record TPC track associated with single ITS track and reference on
-///< the next (worse chi2) matchRecordTPC of the same TPC track 
-struct matchRecordTPC {
+///< record TPC or ITS track associated with single ITS or TPC track and reference on
+///< the next (worse chi2) matchRecord of the same TPC or ITS track 
+struct matchRecord {
   float chi2 = -1.f;             ///< matching chi2
-  int matchITSID = DummyID;      ///< id of matchITS struct in mMatchesITS container
+  int matchID = DummyID;      ///< id of matchITS struct in mMatchesITS container
   int nextRecID = DummyID;       ///< index of eventual next record
 
-  matchRecordTPC(int itsMID, float chi2match) : matchITSID(itsMID), chi2(chi2match) {}
-  matchRecordTPC(int itsMID, float chi2match, int nxt) : matchITSID(itsMID), chi2(chi2match), nextRecID(nxt) {}
-  matchRecordTPC() = default;
-};
-
-struct matchRecordITS {
-  int matchTPCID = DummyID;   ///< index of matchTPC structure of TPC track it is matched to
-  int nextRecID = DummyID;    ///< index of eventual next record
-  matchRecordITS(int tpcMatchID) : matchTPCID(tpcMatchID) {}
-  matchRecordITS() = default;
+  matchRecord(int itsMID, float chi2match) : matchID(itsMID), chi2(chi2match) {}
+  matchRecord(int itsMID, float chi2match, int nxt) : matchID(itsMID), chi2(chi2match), nextRecID(nxt) {}
+  matchRecord() = default;
 };
  
 class MatchTPCITS {
@@ -271,8 +264,8 @@ class MatchTPCITS {
   void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
 
   ///------------------- manipulations with matches records ----------------------
-  bool registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, float& chi2);
-  void registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID);
+  bool registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, float chi2);
+  void registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID, float chi2);
   void suppressMatchRecordITS(int matchITSID, int matchTPCID);
   matchTPC& getTPCMatchEntry(TrackLocTPC& tTPC);
   matchITS& getITSMatchEntry(TrackLocITS& tITS);
@@ -400,9 +393,9 @@ class MatchTPCITS {
   std::vector<matchITS> mMatchesITS; 
 
   ///< container for record the match of TPC track to single ITS track
-  std::vector<matchRecordTPC> mMatchRecordsTPC; 
-  ///< container for reference to matchRecordTPC involving particular ITS track
-  std::vector<matchRecordITS> mMatchRecordsITS; 
+  std::vector<matchRecord> mMatchRecordsTPC; 
+  ///< container for reference to matchRecord involving particular ITS track
+  std::vector<matchRecord> mMatchRecordsITS; 
   
   std::vector<TrackLocTPC> mTPCWork; ///<TPC track params prepared for matching
   std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching

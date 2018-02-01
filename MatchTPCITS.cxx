@@ -146,7 +146,7 @@ int MatchTPCITS::getNMatchRecordsITS(const matchITS& itsMatch) const
   while (recID!=DummyID) {
     auto& itsRecord = mMatchRecordsITS[recID];
     recID = itsRecord.nextRecID;
-    if (itsRecord.matchTPCID!=DummyID) { // some match records might be disabled
+    if (itsRecord.matchID!=DummyID) { // some match records might be disabled
       count++;
     }
   }
@@ -542,8 +542,8 @@ void MatchTPCITS::suppressMatchRecordITS(int matchITSID, int matchTPCID)
   auto& itsMatch = mMatchesITS[matchITSID];
   int recordID = itsMatch.first;     // 1st entry in mMatchRecordsITS
   while(recordID!=DummyID) { // navigate over records for given ITS track
-    if (mMatchRecordsITS[recordID].matchTPCID == matchTPCID) {
-      mMatchRecordsITS[recordID].matchTPCID = DummyID;
+    if (mMatchRecordsITS[recordID].matchID == matchTPCID) {
+      mMatchRecordsITS[recordID].matchID = DummyID;
       return;
     }
     recordID = mMatchRecordsITS[recordID].nextRecID; // check next record
@@ -551,16 +551,16 @@ void MatchTPCITS::suppressMatchRecordITS(int matchITSID, int matchTPCID)
 }
 
 //______________________________________________
-bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, float& chi2)
+bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, float chi2)
 {
   ///< record matching candidate, making sure that number of ITS candidates per TPC track, sorted
   ///< in matching chi2 does not exceed allowed number
   const int OverrideExisting = DummyID-100;
 
   auto & mtcTPC = getTPCMatchEntry(tTPC); // get matchTPC structure of this TPC track, create if none
-  int nextID = mtcTPC.first;  // get 1st matchRecordTPC this matchTPC refers to
+  int nextID = mtcTPC.first;  // get 1st matchRecord this matchTPC refers to
   if (nextID == DummyID) { // no matches yet, just add new record 
-    registerMatchRecordITS(tITS, tTPC.matchID); // register matchTPC entry in the ITS records
+    registerMatchRecordITS(tITS, tTPC.matchID, chi2); // register matchTPC entry in the ITS records
     mtcTPC.first = mMatchRecordsTPC.size(); // new record will be added in the end
     mMatchRecordsTPC.emplace_back(tITS.matchID, chi2); // create new record with empty reference on next match
     return true;
@@ -576,9 +576,9 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
       }
       else { // max number of candidates reached, will overwrite the last one
 	nextMatchRec.chi2 = chi2;
-	suppressMatchRecordITS(nextMatchRec.matchITSID, tTPC.matchID); // flag as disabled the overriden ITS match
-	registerMatchRecordITS(tITS,tTPC.matchID); // register matchTPC entry in the ITS records
-	nextMatchRec.matchITSID = tITS.matchID; // reuse the record of suppressed ITS match to store better one
+	suppressMatchRecordITS(nextMatchRec.matchID, tTPC.matchID); // flag as disabled the overriden ITS match
+	registerMatchRecordITS(tITS,tTPC.matchID, chi2); // register matchTPC entry in the ITS records
+	nextMatchRec.matchID = tITS.matchID; // reuse the record of suppressed ITS match to store better one
 	nextID = OverrideExisting; // to flag overriding existing (last) candidate
 	return true;
       }
@@ -598,7 +598,7 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
       mMatchRecordsTPC[topID].nextRecID =  mMatchRecordsTPC.size(); // register to his parent
     }
     // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
-    registerMatchRecordITS(tITS,tTPC.matchID);  // register matchTPC entry in the ITS records
+    registerMatchRecordITS(tITS,tTPC.matchID, chi2);  // register matchTPC entry in the ITS records
     mMatchRecordsTPC.emplace_back(tITS.matchID, chi2, nextID); // create new record with empty reference on next match
     return true; 
   }
@@ -608,22 +608,41 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
 }
 
 //______________________________________________
-void MatchTPCITS::registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID)
+void MatchTPCITS::registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID, float chi2)
 {
-  ///< re
+  ///< register TPC match in ITS match records, ordering then in chi2 
   auto & itsMatch = getITSMatchEntry(tITS); // if needed, create new entry
   int nextRecord = itsMatch.first;  // entry of 1st match record in mMatchRecordsITS
   int idnew = mMatchRecordsITS.size();
-  mMatchRecordsITS.emplace_back(matchTPCID); // associate inded of matchTPD with this record
+  mMatchRecordsITS.emplace_back(matchTPCID,chi2); // associate index of matchTPC with this record
   if (nextRecord==DummyID) { // this is the 1st match for this TPC track
     itsMatch.first = idnew;
     return;
   }
-  while (mMatchRecordsITS[nextRecord].nextRecID != DummyID) { // navigate to last record
+  // there are other matches for this ITS track, insert the new record preserving chi2 order
+  // navigate till last record or the one with worse chi2
+  int topID = DummyID;
+  auto & newRecord = mMatchRecordsITS.back();
+  do {
+    auto & recITS = mMatchRecordsITS[nextRecord];
+    if (recITS.matchID != DummyID) { // make sure this record was not discarded
+      if (chi2 < recITS.chi2) { // insert before this one
+	newRecord.nextRecID = nextRecord; // new one will refer to old one it overtook
+	if (topID == DummyID) {
+	  itsMatch.first = idnew; // the new one is the best match, the matchITS will refer to it 
+	}
+	else {
+	  mMatchRecordsITS[topID].nextRecID = idnew; // new record will follow existing better one
+	}
+	return;
+      }
+    }
+    topID = nextRecord;
     nextRecord = mMatchRecordsITS[nextRecord].nextRecID; 
-  };
-  mMatchRecordsITS[nextRecord].nextRecID = idnew; // register new link
+  } while(nextRecord != DummyID);
   
+  // if we reached here, the new record should be added in the end
+  mMatchRecordsITS[topID].nextRecID = idnew; // register new link  
 }
 
 //______________________________________________
@@ -709,8 +728,8 @@ void MatchTPCITS::printCandidatesTPC() const
     int count=0, recID = tpcMatch.first;
     do {
       const auto & rcTPC = mMatchRecordsTPC[recID];
-      const auto & itsMatch = mMatchesITS[rcTPC.matchITSID];
-      printf("  * cand %2d : ITS track %6d(%4d) Chi2: %f\n",
+      const auto & itsMatch = mMatchesITS[rcTPC.matchID];
+      printf("  * cand %2d : ITS track %6d(%4d) Chi2: %.2f\n",
 	     count,itsMatch.source.id,itsMatch.source.chunk,rcTPC.chi2);
       count++;
       recID=rcTPC.nextRecID;
@@ -731,9 +750,10 @@ void MatchTPCITS::printCandidatesITS() const
     int count=0, recID = itsMatch.first;
     do {
       const auto & rcITS = mMatchRecordsITS[recID];
-      if (rcITS.matchTPCID != DummyID ) { // some ITS matches can be disabled
-	const auto & tpcMatch = mMatchesTPC[rcITS.matchTPCID];
-	printf("  * cand %2d : TPC track %6d(%4d)\n",count,tpcMatch.source.id,tpcMatch.source.chunk);
+      if (rcITS.matchID != DummyID ) { // some ITS matches can be disabled
+	const auto & tpcMatch = mMatchesTPC[rcITS.matchID];
+	printf("  * cand %2d : TPC track %6d(%4d) Chi2: %.2f\n",
+	       count,tpcMatch.source.id,tpcMatch.source.chunk,rcITS.chi2);
 	count++;
       }
       recID=rcITS.nextRecID;
