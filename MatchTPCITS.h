@@ -73,7 +73,8 @@ enum TrackRejFlag : int {
 ///< original track in the currently loaded TPC reco output
 struct TrackLocTPC {
   o2::track::TrackParCov track;
-  int trOrigID = -1;   ///< original index of the TPC track in the input packet (tree entry)
+  int trOrigID = DummyID;   ///< original index of the TPC track in the input packet (tree entry)
+  int matchID = DummyID; ///< entry (non if DummyID) of its matchTPC struct in the mMatchRecordTPCs 
   float timeMin = 0.f; ///< min. possible time (in TPC time-bin units)
   float timeMax = 0.f; ///< max. possible time (in TPC time-bin units)
   TrackLocTPC(const o2::track::TrackParCov& src, int trid) : track(src),trOrigID(trid) {}
@@ -85,37 +86,59 @@ struct TrackLocTPC {
 ///< original track in the currently loaded ITS reco output
 struct TrackLocITS {
   o2::track::TrackParCov track;
-  int trOrigID = -1;    ///< original index of the ITS track in the input packet (tree entry)
-  int eventID = -1;     ///< packet (tree entry) this track belongs to
-  int roFrame = -1;     ///< ITS readout frame assigned to this track
-  float timeMin = 0.f;  ///< min. possible time (in TPC time-bin units)
-  float timeMax = 0.f;  ///< max. possible time (in TPC time-bin units)
+  int trOrigID = DummyID;    ///< original index of the ITS track in the input packet (tree entry)
+  int eventID = DummyID;     ///< packet (tree entry) this track belongs to
+  int roFrame = DummyID;     ///< ITS readout frame assigned to this track
+  int matchID = DummyID;  ///< entry (non if DummyID) of its matchITS struct in the mMatchRecordITSs 
+  float timeMin = 0.f;       ///< min. possible time (in TPC time-bin units)
+  float timeMax = 0.f;       ///< max. possible time (in TPC time-bin units)
+  int matchID = DummyID;     ///< entry (none if DummyID) of the container XXX of matched ITS tracks  
   TrackLocITS(const o2::track::TrackParCov& src, int trid, int evid) : track(src),trOrigID(trid),eventID(evid) {}
   TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
 };
 
+///< each TPC track having at least 1 matching ITS candidate records in matchTPC the
+///< the ID of the 1st (best) matchRecordTPC in the mMatchRecordsTPC container
+struct matchTPC {
+  int first;  ///< 1st match for this track in the mMatchRecordsTPC
+  matchTPC(int id) : first(id) {}
+  matchTPC() = default;
+};
+
+///< each ITS track having at least 1 matching TPC candidate records in matchITS the
+///< the ID of its 1st matchLink in the mMatchLinksITS container
+struct matchITS {
+  int first;  ///< 1st match for this track in the mMatchRecordsTPC
+  matchITS(int id) : first(id) {}
+  matchITS() = default;
+};
  
 ///< record TPC track associated with single ITS track and reference on
 ///< the next (worse chi2) matchRecordTPC of the same TPC track 
 struct matchRecordTPC {
   float chi2 = -1.f;             ///< matching chi2
-  int trOrigID  = DummyID;       ///< original index of the track in its packet (tree entry)
-  int eventID   = DummyID;       ///< packet (tree entry) the track belongs to
+  int matchITSID = DummyID;      ///< id of matchITS struct in mMatchesITS container
   int nextRecID = DummyID;       ///< index of eventual next record
-  matchRecordTPC(int trid, int evid, float chi2match) :
-    trOrigID(trid), eventID(evid), chi2(chi2match) {}
-  matchRecordTPC(int trid, int evid, float chi2match, int nxt) :
-    trOrigID(trid), eventID(evid), chi2(chi2match), nextRecID(nxt) {}
+  matchRecordTPC(int itsMID, float chi2match) :
+    matchITSID(itsMID), chi2(chi2match) {}
+  matchRecordTPC(int itsMID, float chi2match, int nxt) :
+    matchITSIS(itsMID), chi2(chi2match), nextRecID(nxt) {}
   matchRecordTPC() = default;
   ClassDefNV(matchRecordTPC,1);
 };
 
 struct recordLink {
-  int recID;        ///< record ID this link points to
-  int nextLinkID;   ///< id of the next recordLink related to the owner of this link
+  int recID = DummyID;        ///< record ID this link points to
+  int nextLinkID = DummyID;   ///< id of the next recordLink related to the owner of this link
+  recordLink(int rcid,int nextid) : recID(rcid), nextid(nextid) {}
+  recordLink() = default;
 };
 
+struct matchRecordITS {
+  int trOrigID  = DummyID;       ///< original index of the track in its packet (tree entry)
+  int eventID   = DummyID;       ///< packet (tree entry) the track belongs to
+};
  
 class MatchTPCITS {
   

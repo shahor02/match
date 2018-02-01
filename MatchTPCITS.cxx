@@ -510,17 +510,51 @@ void MatchTPCITS::doMatching(int sec)
 }
 
 //______________________________________________
+matchTPC& MatchTPCITS::getTPCMatchEntry(TrackLocTPC& tTPC)
+{
+  if (tTPC.matchID == DummyID) { // does this TPC track already have any match? If not, create matchTPC entry 
+    tTPC.matchID = mMatchesTPC.size();
+    mMatchesTPC.emplace_back();
+    //TODO fill other info
+    return mMatchesTPC.back();
+  }
+  return mMatchesTPC[tTPC.matchID];
+}
+
+//______________________________________________
+matchITS& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
+{
+  if (tITS.matchID == DummyID) { // does this ITS track already have any match? If not, create matchITS entry 
+    tITS.matchID = mMatchesITS.size();
+    mMatchesITS.emplace_back();
+    //TODO fill other info
+    return mMatchesITS.back();
+  }
+  return mMatchesITS[tITS.matchID];
+}
+
+//______________________________________________
 bool MatchTPCITS::registerMatchRecordTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
 {
-  ///< record matching candidate, making sure that number of candidates per TPC track, sorted
+  ///< record matching candidate, making sure that number of ITS candidates per TPC track, sorted
   ///< in matching chi2 does not exceed allowed number
   const int OverrideExisting = DummyID-100;
-  int nextID = mMatchRecordTPCID[tTPC.trOrigID]; // best matchRecord entry in the mMatchRecordTPCs
+
+  auto & mtcTPC = getTPCMatchEntry(tTPC); // get matchTPC structure of this TPC track, create if none
+  int nextID = mtcTPC.first;  // get 1st matchRecordTPC this matchTPC refers to
   if (nextID == DummyID) { // no matches yet, just add new record 
-    mMatchRecordTPCID[tTPC.trOrigID] = mMatchRecordsTPC.size(); // register new record as top one
-    mMatchRecordsTPC.emplace_back(tITS.trOrigID, tITS.eventID, chi2); // create new record with empty reference on next match
+
+    /// was this ITS track ever matched? If not, create a matchITS entry for it
+    auto & mtcITS = getITSMatchEntry(tITS); // get matchITS structure of this ITS track, create if none
+    if (mtcITS.first == DummiID) {
+      mtcITS.first = mMatchRecordsITS.size(); // new record will be added in the end  
+      mMatchRecordsITS.emplace(tTPC.matchID); // reference to matchTPC
+    }
+    mtcTPC.first = mMatchRecordsTPC.size(); // new record will be added in the end
+    mMatchRecordsTPC.emplace_back(tITS.matchID, chi2); // create new record with empty reference on next match
     return true;
   }
+  
   int count=0, topID=DummyID;
   do {
     auto& nextMatchRec = mMatchRecordsTPC[nextID];
@@ -530,14 +564,15 @@ bool MatchTPCITS::registerMatchRecordTPC(const TrackLocITS& tITS,const TrackLocT
 	break; // will insert in front of nextID
       }
       else { // max number of candidates reached, will overwrite the last one
+	getITSMatchEntry(tITS); // if needed, create matchITS struct
 	nextMatchRec.chi2 = chi2;
-	nextMatchRec.trOrigID = tITS.trOrigID;
-	nextMatchRec.eventID = tITS.eventID;
+	removeFromITSMatches(nextMatchRec.matchITSID, tTPC.matchID); // flag as disabled the overriden ITS match
+	nextMatchRec.matchITSID = tITS.matchID;
 	nextID = OverrideExisting; // to flag overriding existing candidate
 	break;
       }
     }
-    topID = nextID; // register better parent
+    topID = nextID; // check next match record
     nextID = nextMatchRec.nextRecID;
   } while (nextID!=DummyID);
 
@@ -545,14 +580,14 @@ bool MatchTPCITS::registerMatchRecordTPC(const TrackLocITS& tITS,const TrackLocT
   // new candidated was either discarded (if its chi2 is worst one) or has overwritten worst
   // existing candidate. Otherwise, we need to add new entry
   if (count<mMaxMatchCandidates) {
-    if (topID==DummyID) { // the new match one is top candidate
-      mMatchRecordTPCID[tTPC.trOrigID] = mMatchRecordsTPC.size(); // register new record as top one
+    if (topID==DummyID) { // the new match is top candidate
+      mtcTPC.first = mMatchRecordsTPC.size(); // register new record as top one
     }
     else { // there are better candidates
       mMatchRecordsTPC[topID].nextRecID =  mMatchRecordsTPC.size(); // register to his parent
     }
     // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
-    mMatchRecordsTPC.emplace_back(tITS.trOrigID,tITS.eventID, chi2, nextID); // create new record with empty reference on next match
+    mMatchRecordsTPC.emplace_back(tITS.matchID, chi2, nextID); // create new record with empty reference on next match
     return true; 
   }
   return nextID==OverrideExisting; // unless nextID was assigned OverrideExisting, new candidate was discarded
