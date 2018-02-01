@@ -50,6 +50,8 @@ class TrackTPC;
 namespace globaltracking
 {
 
+constexpr int DummyID = -1;
+  
 enum TimerLevel : int
 { // how often stop/start timer
   TimingOff, TimingTotal, TimingLoadData, TimingFillDebugTree, TimingPrintout, TimingAll
@@ -93,26 +95,32 @@ struct TrackLocITS {
   ClassDefNV(TrackLocITS,1);
 };
 
-///< record of single ITS track matching to given TPC track and reference on
-///< the match record of the same TPC track 
-struct MatchRecord {
-  static const int Dummy; ///< flag dummy index, must be negative
-  float chi2 = -1.f;           ///< matching chi2
-  int trOrigID = Dummy;        ///< original index of the track in its packet (tree entry)
-  int eventID = Dummy;         ///< packet (tree entry) the track belongs to
-  int nextRecID = Dummy;       ///< index of eventual next record
-  MatchRecord(int trid, int evid, float chi2match) :
+ 
+///< record TPC track associated with single ITS track and reference on
+///< the next (worse chi2) matchRecordTPC of the same TPC track 
+struct matchRecordTPC {
+  float chi2 = -1.f;             ///< matching chi2
+  int trOrigID  = DummyID;       ///< original index of the track in its packet (tree entry)
+  int eventID   = DummyID;       ///< packet (tree entry) the track belongs to
+  int nextRecID = DummyID;       ///< index of eventual next record
+  matchRecordTPC(int trid, int evid, float chi2match) :
     trOrigID(trid), eventID(evid), chi2(chi2match) {}
-  MatchRecord(int trid, int evid, float chi2match, int nxt) :
+  matchRecordTPC(int trid, int evid, float chi2match, int nxt) :
     trOrigID(trid), eventID(evid), chi2(chi2match), nextRecID(nxt) {}
-  MatchRecord() = default;
-  ClassDefNV(MatchRecord,1);
+  matchRecordTPC() = default;
+  ClassDefNV(matchRecordTPC,1);
 };
 
+struct recordLink {
+  int recID;        ///< record ID this link points to
+  int nextLinkID;   ///< id of the next recordLink related to the owner of this link
+};
+
+ 
 class MatchTPCITS {
   
  public:
-
+  
   ///< perform matching for provided input
   void run();
   
@@ -123,7 +131,7 @@ class MatchTPCITS {
   void setITSROFrame(float fums) { mITSROFrame = fums; }
 
   ///< get number of matching records for TPC track
-  int getNMatchRecords(int tpcTrackID) const;
+  int getNMatchRecordsTPC(int tpcTrackID) const;
 
   ///< set chain containing ITS tracks 
   void setInputChainITS(TChain* chain) { mChainITS = chain;}
@@ -218,7 +226,7 @@ class MatchTPCITS {
   bool loadITSData();
   void doMatching(int sec);
   int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2) const;
-  bool registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
+  bool registerMatchRecordTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
   float getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const;
   bool propagateToRefX(o2::track::TrackParCov &trc);
   void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
@@ -327,8 +335,8 @@ class MatchTPCITS {
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< input TPC Track MC labels
   /// <<<-----
   
-  std::vector<int> mMatchRecordID; ///< refs on 1st matchRecord in mMatchRecords of each TPC track
-  std::vector<MatchRecord> mMatchRecords; ///< match records pool
+  std::vector<int> mMatchRecordTPCID; ///< refs on 1st matchRecord in mMatchRecordTPCs of each TPC track
+  std::vector<matchRecordTPC> mMatchRecordsTPC; ///< match records pool
 
   std::vector<TrackLocTPC> mTPCWork; ///<TPC track params prepared for matching
   std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching

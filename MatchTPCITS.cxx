@@ -46,8 +46,6 @@ using namespace o2::globaltracking;
 using MatrixDSym4 = ROOT::Math::SMatrix<double, 4, 4, ROOT::Math::MatRepSym<double, 4>>;
 using MatrixD4 = ROOT::Math::SMatrix<double, 4, 4, ROOT::Math::MatRepStd<double, 4>>;
 
-const int MatchRecord::Dummy = -1;
-
 //______________________________________________
 void MatchTPCITS::run()
 {
@@ -122,12 +120,12 @@ void MatchTPCITS::init()
 
 
 //______________________________________________
-int MatchTPCITS::getNMatchRecords(int tpcTrackID) const
+int MatchTPCITS::getNMatchRecordsTPC(int tpcTrackID) const
 {
   ///< get number of matching records for TPC track
-  int count = 0, recID = mMatchRecordID[tpcTrackID];
-  while (recID!=MatchRecord::Dummy) {
-    recID = mMatchRecords[recID].nextRecID;
+  int count = 0, recID = mMatchRecordTPCID[tpcTrackID];
+  while (recID!=DummyID) {
+    recID = mMatchRecordsTPC[recID].nextRecID;
     count++;
   }
   return count;
@@ -178,17 +176,17 @@ void MatchTPCITS::attachInputChains()
 bool MatchTPCITS::prepareTPCData()
 {
   ///< load next chunk of TPC data and prepare for matching
-  mMatchRecordID.clear();
-  mMatchRecords.clear();
+  mMatchRecordTPCID.clear();
+  mMatchRecordsTPC.clear();
 
   if (!loadTPCData()) {
     return false;
   }
 
   // prepare empty matching records for each TPC track
-  mMatchRecordID.resize(mTPCTracksArrayInp->size(),MatchRecord::Dummy);
+  mMatchRecordTPCID.resize(mTPCTracksArrayInp->size(),DummyID);
   // number of records might be actually more than N tracks!
-  mMatchRecords.reserve(mTPCTracksArrayInp->size()); 
+  mMatchRecordsTPC.reserve(mTPCTracksArrayInp->size()); 
 
   // copy the track params, propagate to reference X and build sector tables
   int ntr = mTPCTracksArrayInp->size();
@@ -501,7 +499,7 @@ void MatchTPCITS::doMatching(int sec)
 	continue;
       }
       if (rejFlag!=Accept) continue;
-      registerMatchRecord(trefITS,trefTPC,chi2);// register matching candidate
+      registerMatchRecordTPC(trefITS,trefTPC,chi2);// register matching candidate
       nMatchesControl++;
     }    
   }
@@ -512,20 +510,20 @@ void MatchTPCITS::doMatching(int sec)
 }
 
 //______________________________________________
-bool MatchTPCITS::registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
+bool MatchTPCITS::registerMatchRecordTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2)
 {
   ///< record matching candidate, making sure that number of candidates per TPC track, sorted
   ///< in matching chi2 does not exceed allowed number
-  const int OverrideExisting = MatchRecord::Dummy-100;
-  int nextID = mMatchRecordID[tTPC.trOrigID]; // best matchRecord entry in the mMatchRecords
-  if (nextID == MatchRecord::Dummy) { // no matches yet, just add new record 
-    mMatchRecordID[tTPC.trOrigID] = mMatchRecords.size(); // register new record as top one
-    mMatchRecords.emplace_back(tITS.trOrigID, tITS.eventID, chi2); // create new record with empty reference on next match
+  const int OverrideExisting = DummyID-100;
+  int nextID = mMatchRecordTPCID[tTPC.trOrigID]; // best matchRecord entry in the mMatchRecordTPCs
+  if (nextID == DummyID) { // no matches yet, just add new record 
+    mMatchRecordTPCID[tTPC.trOrigID] = mMatchRecordsTPC.size(); // register new record as top one
+    mMatchRecordsTPC.emplace_back(tITS.trOrigID, tITS.eventID, chi2); // create new record with empty reference on next match
     return true;
   }
-  int count=0, topID=MatchRecord::Dummy;
+  int count=0, topID=DummyID;
   do {
-    auto& nextMatchRec = mMatchRecords[nextID];
+    auto& nextMatchRec = mMatchRecordsTPC[nextID];
     count++;
     if (chi2<nextMatchRec.chi2) { // need to insert new record before nextMatchRec?
       if (count<mMaxMatchCandidates) {
@@ -541,20 +539,20 @@ bool MatchTPCITS::registerMatchRecord(const TrackLocITS& tITS,const TrackLocTPC&
     }
     topID = nextID; // register better parent
     nextID = nextMatchRec.nextRecID;
-  } while (nextID!=MatchRecord::Dummy);
+  } while (nextID!=DummyID);
 
   // if count == mMaxMatchCandidates, the max number of candidates was already reached, and the
   // new candidated was either discarded (if its chi2 is worst one) or has overwritten worst
   // existing candidate. Otherwise, we need to add new entry
   if (count<mMaxMatchCandidates) {
-    if (topID==MatchRecord::Dummy) { // the new match one is top candidate
-      mMatchRecordID[tTPC.trOrigID] = mMatchRecords.size(); // register new record as top one
+    if (topID==DummyID) { // the new match one is top candidate
+      mMatchRecordTPCID[tTPC.trOrigID] = mMatchRecordsTPC.size(); // register new record as top one
     }
     else { // there are better candidates
-      mMatchRecords[topID].nextRecID =  mMatchRecords.size(); // register to his parent
+      mMatchRecordsTPC[topID].nextRecID =  mMatchRecordsTPC.size(); // register to his parent
     }
     // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
-    mMatchRecords.emplace_back(tITS.trOrigID,tITS.eventID, chi2, nextID); // create new record with empty reference on next match
+    mMatchRecordsTPC.emplace_back(tITS.trOrigID,tITS.eventID, chi2, nextID); // create new record with empty reference on next match
     return true; 
   }
   return nextID==OverrideExisting; // unless nextID was assigned OverrideExisting, new candidate was discarded
@@ -639,13 +637,13 @@ void MatchTPCITS::printCandidates() // temporary
   timingOff(TimingPrintout);
 
   for (int itr=0;itr<int(mTPCTracksArrayInp->size());itr++) {
-    int nrec = getNMatchRecords(itr);
+    int nrec = getNMatchRecordsTPC(itr);
     printf("*** trackTPC#%5d : Ncand = %d\n",itr,nrec);
-    int count=0, recID = mMatchRecordID[itr];
-    while (recID!=MatchRecord::Dummy) {
-      auto& rec = mMatchRecords[recID];
+    int count=0, recID = mMatchRecordTPCID[itr];
+    while (recID!=DummyID) {
+      auto& rec = mMatchRecordsTPC[recID];
       printf("  * cand %2d : ITS track %5d(%4d) Chi2: %f\n",count,rec.trOrigID,rec.eventID,rec.chi2);
-      recID = mMatchRecords[recID].nextRecID;
+      recID = mMatchRecordsTPC[recID].nextRecID;
       count++;
     }
   }
