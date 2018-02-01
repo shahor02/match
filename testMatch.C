@@ -37,7 +37,7 @@ void testMatch(std::string path = "./"
 #ifdef _ALLOW_DEBUG_TREES_
   matching.setDebugTreeFileName(path+matching.getDebugTreeFileName());
   // dump accepted pairs only
-  matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAccOnly);
+  //  matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAccOnly);
   // dump all checked pairs
   // matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAll);
 #endif

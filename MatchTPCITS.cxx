@@ -62,8 +62,6 @@ void MatchTPCITS::run()
 	doMatching(sec);
       }
     }
-    printCandidatesTPC();
-    printCandidatesITS();
   }
 
   timingOff(TimingTotal);
@@ -71,6 +69,10 @@ void MatchTPCITS::run()
   if (mTimingLevel>=TimingTotal) {
     mTimer.Print();
   }
+
+  printCandidatesTPC();
+  printCandidatesITS();
+
 #ifdef _ALLOW_DEBUG_TREES_
   mDBGOut.reset();
 #endif
@@ -124,12 +126,11 @@ void MatchTPCITS::init()
   
 }
 
-
 //______________________________________________
-int MatchTPCITS::getNMatchRecordsTPC(int matchTPCID) const
+int MatchTPCITS::getNMatchRecordsTPC(const matchTPC& tpcMatch) const
 {
-  ///< get number of matching records for TPC track reffering to matchTPS struct with matchTPCID
-  int count = 0, recID = mMatchesTPC[matchTPCID].first;
+  ///< get number of matching records for TPC track referring to this matchTPC
+  int count = 0, recID = tpcMatch.first;
   while (recID!=DummyID) {
     recID = mMatchRecordsTPC[recID].nextRecID;
     count++;
@@ -138,10 +139,10 @@ int MatchTPCITS::getNMatchRecordsTPC(int matchTPCID) const
 }
 
 //______________________________________________
-int MatchTPCITS::getNMatchRecordsITS(int matchITSID) const
+int MatchTPCITS::getNMatchRecordsITS(const matchITS& itsMatch) const
 {
-  ///< get number of matching records for ITS track reffering to matchITS struct with matchITSID
-  int count = 0, recID = mMatchesITS[matchITSID].first;
+  ///< get number of matching records for ITS track referring to this matchITS
+  int count = 0, recID = itsMatch.first;
   while (recID!=DummyID) {
     auto& itsRecord = mMatchRecordsITS[recID];
     recID = itsRecord.nextRecID;
@@ -244,8 +245,7 @@ bool MatchTPCITS::prepareTPCData()
     float dtZCETPC = z2TPCBin( fabs(trcOrig.getLastClusterZ()) );
     // RS: consider more effective narrowing
     float time0 = trcOrig.getTimeVertex(mTPCBin2Z);
-    trc.timeMin = time0 - dtZCETPC - mTPCTimeEdgeTSafeMargin; 
-    trc.timeMax = time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin;
+    trc.timeBins.set(time0 - dtZCETPC - mTPCTimeEdgeTSafeMargin,time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin);
 
     // cache work track index
     mTPCSectIndexCache[o2::utils::Angle2Sector( trc.track.getAlpha() )].push_back( mTPCWork.size()-1 ); 
@@ -260,18 +260,18 @@ bool MatchTPCITS::prepareTPCData()
 	      [this](int a, int b) {	       
 		auto &trcA = mTPCWork[a];
 		auto &trcB = mTPCWork[b];		
-		return (trcA.timeMax - trcB.timeMax) < 0.;
+		return (trcA.timeBins.tmax - trcB.timeBins.tmax) < 0.;
 	      });
 
     // build array of 1st entries with tmax corresponding to each ITS RO cycle
-    float tmax = mTPCWork[ indexCache.back() ].timeMax;
+    float tmax = mTPCWork[ indexCache.back() ].timeBins.tmax;
     int nbins = 1 +  tpcTimeBin2ITSROFrame(tmax);
     auto &tbinStart = mTPCTimeBinStart[sec];
     tbinStart.resize( nbins>1 ? nbins : 1, -1);
     tbinStart[0] = 0;
     for (int itr=0;itr<(int)indexCache.size();itr++) {
       auto &trc = mTPCWork[ indexCache[itr] ];
-      int bTrc = tpcTimeBin2ITSROFrame(trc.timeMax);
+      int bTrc = tpcTimeBin2ITSROFrame(trc.timeBins.tmax);
       if (bTrc<0) {
 	continue;
       }
@@ -338,8 +338,8 @@ bool MatchTPCITS::prepareITSData()
       mITSLblWork.emplace_back( mITSTrkLabels->getLabels(it)[0] );
     }
 
-    trc.timeMin = itsROFrame2TPCTimeBin(trcOrig.getROFrame());
-    trc.timeMax = trc.timeMin + mITSROFrame2TPCBin;
+    float tmn = itsROFrame2TPCTimeBin(trcOrig.getROFrame());
+    trc.timeBins.set(tmn,tmn+mITSROFrame2TPCBin);
     trc.roFrame = trcOrig.getROFrame();
 
     // cache work track index
@@ -488,7 +488,7 @@ void MatchTPCITS::doMatching(int sec)
     auto & trefTPC = mTPCWork[ cacheTPC[itpc] ];
     // estimate ITS 1st ROframe bin this track may match to: TPC track are sorted according to their
     // timeMax, hence the timeMax - MaxmNTPCBinsFullDrift are non-decreasing
-    int itsROBin = tpcTimeBin2ITSROFrame(trefTPC.timeMax - maxTDriftSafe);
+    int itsROBin = tpcTimeBin2ITSROFrame(trefTPC.timeBins.tmax - maxTDriftSafe);
     if (itsROBin>=int(tbinStartITS.size())) { // time of TPC track exceeds the max time of ITS in the cache
       break;
     }
@@ -497,7 +497,7 @@ void MatchTPCITS::doMatching(int sec)
     for (auto iits=iits0;iits<nTracksITS;iits++) {
       auto &trefITS = mITSWork[ cacheITS[iits] ];
       // compare if the ITS and TPC tracks may overlap in time
-      if (trefTPC.timeMax<trefITS.timeMin) {
+      if (trefTPC.timeBins.tmax<trefITS.timeBins.tmin) {
 	// since TPC tracks are sorted in timeMax and ITS tracks are sorted in timeMin
 	//all following ITS tracks also will not match
 	break;
@@ -532,32 +532,6 @@ void MatchTPCITS::doMatching(int sec)
   // RS: this is temporary dump
   printf("TPC track checked: %d (starting from %d), total checks: %d, total matches: %d\n",
 	 nCheckTPCControl,idxMinTPC,nCheckITSControl,nMatchesControl);
-}
-
-//______________________________________________
-matchTPC& MatchTPCITS::getTPCMatchEntry(TrackLocTPC& tTPC)
-{
-  ///< return the matchTPC entry referred by tje tTPC track,
-  ///< create if neaded
-  if (tTPC.matchID == DummyID) { // does this TPC track already have any match? If not, create matchTPC entry 
-    tTPC.matchID = mMatchesTPC.size();
-    mMatchesTPC.emplace_back(tTPC.source);
-    //TODO fill other info
-    return mMatchesTPC.back();
-  }
-  return mMatchesTPC[tTPC.matchID];
-}
-
-//______________________________________________
-matchITS& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
-{
-  if (tITS.matchID == DummyID) { // does this ITS track already have any match? If not, create matchITS entry 
-    tITS.matchID = mMatchesITS.size();
-    mMatchesITS.emplace_back(tITS.source);
-    //TODO fill other info
-    return mMatchesITS.back();
-  }
-  return mMatchesITS[tITS.matchID];
 }
 
 //______________________________________________
@@ -722,63 +696,49 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
 }
 
 //______________________________________________
-void MatchTPCITS::printCandidatesTPC() // temporary
+void MatchTPCITS::printCandidatesTPC() const
 {
   ///< print mathing records
-  
-  timingOff(TimingPrintout);
 
-  printf("\n\nPrinting all TPC -> ITS matches\n");
-  
-  for (auto& tTPC : mTPCWork) {
-    int matchTPCID = tTPC.matchID;
-    int nrec = matchTPCID==DummyID ? 0 : getNMatchRecordsTPC(matchTPCID);
-    printf("*** trackTPC#%5d(%4d) : Ncand = %d\n",tTPC.source.id,tTPC.source.chunk,nrec);
-    if (!nrec) {
-      continue;
-    }
-    auto& tpcMatch = mMatchesTPC[matchTPCID];
+  printf("\n\nPrinting all %zu TPC -> ITS matches\n", mMatchesTPC.size());
+  for (const auto & tpcMatch : mMatchesTPC) {
+    printf("*** trackTPC# %6d(%4d) : Ncand = %d\n",
+	   tpcMatch.source.id, tpcMatch.source.chunk, getNMatchRecordsTPC(tpcMatch));
     int count=0, recID = tpcMatch.first;
-    while (recID!=DummyID) {
-      const auto & recTPC = mMatchRecordsTPC[recID];
-      const auto & itsMatch = mMatchesITS[recTPC.matchITSID];
-      printf("  * cand %2d : ITS track %5d(%4d) Chi2: %f\n",count,itsMatch.source.id,itsMatch.source.chunk,recTPC.chi2);
-      recID = recTPC.nextRecID;
+    do {
+      const auto & rcTPC = mMatchRecordsTPC[recID];
+      const auto & itsMatch = mMatchesITS[rcTPC.matchITSID];
+      printf("  * cand %2d : ITS track %6d(%4d) Chi2: %f\n",
+	     count,itsMatch.source.id,itsMatch.source.chunk,rcTPC.chi2);
       count++;
-    }
+      recID=rcTPC.nextRecID;
+    } while ( recID != DummyID);    
   }
-  timingOn(TimingPrintout);  
+
 }
 
 //______________________________________________
-void MatchTPCITS::printCandidatesITS() // temporary
+void MatchTPCITS::printCandidatesITS() const
 {
   ///< print mathing records
   
-  timingOff(TimingPrintout);
-  
-  printf("\n\nPrinting all ITS -> TPC matches\n");
-
-  for (auto & tITS : mITSWork) {
-    int matchITSID = tITS.matchID;
-    int nrec = matchITSID==DummyID ? 0 : getNMatchRecordsITS(matchITSID);
-    printf("*** trackITS#%5d(%4d) : Ncand = %d\n",tITS.source.id,tITS.source.chunk,nrec);
-    if (!nrec) {
-      continue;
-    }
-    auto& itsMatch = mMatchesITS[matchITSID];
+  printf("\n\nPrinting all %zu ITS -> TPC matches\n",mMatchesITS.size());
+  for (const auto & itsMatch : mMatchesITS ) {
+    printf("*** trackITS# %6d(%4d) : Ncand = %d\n",
+	   itsMatch.source.id, itsMatch.source.chunk, getNMatchRecordsITS(itsMatch));
     int count=0, recID = itsMatch.first;
-    while (recID!=DummyID) {
-      const auto & recITS = mMatchRecordsITS[recID];
-      const auto & tpcMatch = mMatchesTPC[recITS.matchTPCID];
-      printf("  * cand %2d : TPC track %5d(%4d)\n",count,tpcMatch.source.id,tpcMatch.source.chunk);
-      recID = recITS.nextRecID;
-      count++;
+    do {
+      const auto & rcITS = mMatchRecordsITS[recID];
+      if (rcITS.matchTPCID != DummyID ) { // some ITS matches can be disabled
+	const auto & tpcMatch = mMatchesTPC[rcITS.matchTPCID];
+	printf("  * cand %2d : TPC track %6d(%4d)\n",count,tpcMatch.source.id,tpcMatch.source.chunk);
+	count++;
+      }
+      recID=rcITS.nextRecID;
     }
-  }
+    while ( recID != DummyID );
+  }  
 
-  timingOn(TimingPrintout);
-  
 }
 
 //______________________________________________

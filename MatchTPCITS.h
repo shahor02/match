@@ -54,7 +54,7 @@ constexpr int DummyID = -1;
   
 enum TimerLevel : int
 { // how often stop/start timer
-  TimingOff, TimingTotal, TimingLoadData, TimingFillDebugTree, TimingPrintout, TimingAll
+  TimingOff, TimingTotal, TimingLoadData, TimingFillDebugTree, TimingAll
 };
 
 ///< flags to tell the status of TPC-ITS tracks comparison
@@ -69,12 +69,28 @@ enum TrackRejFlag : int {
   NSigmaShift = 10  
 };
 
+///< timing (in TPC time-bins) bracket assumed for the track
+struct timeBracket {
+  float tmin = 0.f;     ///< min possible time(bin) 
+  float tmax = 0.f;     ///< max possible time(bin)
+  timeBracket() = default;
+  timeBracket(float mn,float mx) : tmin(mn),tmax(mx) {}
+  void set(float tmn,float tmx) {
+    tmin = tmn;
+    tmax = tmx;
+  }
+};
+ 
 ///< identifier for the track entry
 struct trackOrigin {
   int id    = DummyID;  ///< entry in the chunk
   int chunk = DummyID;  ///< data chunk (tree entry, message packet..)
   trackOrigin(int tid,int tch) : id(tid), chunk(tch) {}
   trackOrigin() = default;
+  void set(int tid,int tch) {
+    id = tid;
+    chunk = tch;
+  }
 };
  
 ///< TPC track parameters propagated to reference X, with time bracket and index of
@@ -82,9 +98,8 @@ struct trackOrigin {
 struct TrackLocTPC {
   o2::track::TrackParCov track;
   trackOrigin source;  ///< track origin id
+  timeBracket timeBins;      ///< bracketing time-bins
   int matchID = DummyID;     ///< entry (non if DummyID) of its matchTPC struct in the mMatchesTPC
-  float timeMin = 0.f; ///< min. possible time (in TPC time-bin units)
-  float timeMax = 0.f; ///< max. possible time (in TPC time-bin units)
   TrackLocTPC(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocTPC() = default;
   ClassDefNV(TrackLocTPC,1);
@@ -95,15 +110,16 @@ struct TrackLocTPC {
 struct TrackLocITS {
   o2::track::TrackParCov track;
   trackOrigin source;        ///< track origin id
+  timeBracket timeBins;      ///< bracketing time-bins
   int roFrame = DummyID;     ///< ITS readout frame assigned to this track
   int matchID = DummyID;     ///< entry (non if DummyID) of its matchITS struct in the mMatchesITS
-  float timeMin = 0.f;       ///< min. possible time (in TPC time-bin units)
-  float timeMax = 0.f;       ///< max. possible time (in TPC time-bin units)
   TrackLocITS(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
 };
 
+/// RS: at the moment matchTPC and matchITS are similar, but may diverge in future
+ 
 ///< each TPC track having at least 1 matching ITS candidate records in matchTPC the
 ///< the ID of the 1st (best) matchRecordTPC in the mMatchRecordsTPC container
 struct matchTPC {
@@ -162,6 +178,9 @@ class MatchTPCITS {
 
   ///< print settings
   void print() const;
+  void printCandidatesTPC() const;
+  void printCandidatesITS() const;
+
 
   ///< set timing level
   void setTimingLevel(int v) { mTimingLevel = v; }
@@ -257,15 +276,21 @@ class MatchTPCITS {
   void suppressMatchRecordITS(int matchITSID, int matchTPCID);
   matchTPC& getTPCMatchEntry(TrackLocTPC& tTPC);
   matchITS& getITSMatchEntry(TrackLocITS& tITS);
-  
-  ///< get number of matching records for TPC track with matchTPC at matchTPCID 
-  int getNMatchRecordsTPC(int matchTPCID) const;
-  ///< get number of matching records for ITS track with matchITS at matchITSID 
-  int getNMatchRecordsITS(int matchITSID) const;
-    
-  void printCandidatesTPC(); // temporary
-  void printCandidatesITS(); // temporary
 
+  ///< get number of matching records for TPC track referring to this matchTPC
+  int getNMatchRecordsTPC(const matchTPC& tpcMatch) const;
+  
+  ///< get number of matching records for ITS track referring to this matchITS
+  int getNMatchRecordsITS(const matchITS& itsMatch) const;
+  
+  ///< get number of matching records for TPC track referring to matchTPS struct with matchTPCID
+  int getNMatchRecordsTPC(int matchTPCID) const {
+    return matchTPCID==DummyID ? 0 : getNMatchRecordsTPC(mMatchesTPC[matchTPCID]);
+  }
+  ///< get number of matching records for ITS track referring to matchITS struct with matchITSID
+  int getNMatchRecordsITS(int matchITSID) const {    
+    return matchITSID==DummyID ? 0 : getNMatchRecordsITS(mMatchesITS[matchITSID]);
+  }     
   
   ///< convert TPC time bin to ITS ROFrame units
   int tpcTimeBin2ITSROFrame(float tbin) const {
@@ -419,6 +444,36 @@ class MatchTPCITS {
   
   ClassDefNV(MatchTPCITS,1);
 };
+
+ 
+
+//______________________________________________
+inline matchTPC& MatchTPCITS::getTPCMatchEntry(TrackLocTPC& tTPC)
+{
+  ///< return the matchTPC entry referred by the tTPC track,
+  ///< create if neaded
+  if (tTPC.matchID == DummyID) { // does this TPC track already have any match? If not, create matchTPC entry 
+    tTPC.matchID = mMatchesTPC.size();
+    mMatchesTPC.emplace_back(tTPC.source);
+    return mMatchesTPC.back();
+  }
+  return mMatchesTPC[tTPC.matchID];
+}
+
+//______________________________________________
+inline matchITS& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
+{
+  ///< return the matchITS entry referred by the tITS track,
+  ///< create if neaded
+  if (tITS.matchID == DummyID) { // does this ITS track already have any match? If not, create matchITS entry 
+    tITS.matchID = mMatchesITS.size();
+    mMatchesITS.emplace_back(tITS.source);
+    return mMatchesITS.back();
+  }
+  return mMatchesITS[tITS.matchID];
+}
+
+
  
 }
 }
