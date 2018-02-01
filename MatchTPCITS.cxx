@@ -580,7 +580,7 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
 	registerMatchRecordITS(tITS,tTPC.matchID); // register matchTPC entry in the ITS records
 	nextMatchRec.matchITSID = tITS.matchID; // reuse the record of suppressed ITS match to store better one
 	nextID = OverrideExisting; // to flag overriding existing (last) candidate
-	break; // return true?
+	return true;
       }
     }
     topID = nextID; // check next match record
@@ -602,7 +602,9 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
     mMatchRecordsTPC.emplace_back(tITS.matchID, chi2, nextID); // create new record with empty reference on next match
     return true; 
   }
-  return nextID==OverrideExisting; // unless nextID was assigned OverrideExisting, new candidate was discarded
+  else {
+    return false; // unless nextID was assigned OverrideExisting, new candidate was discarded
+  }
 }
 
 //______________________________________________
