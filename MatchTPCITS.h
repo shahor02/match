@@ -74,7 +74,7 @@ struct trackOrigin {
   int id    = DummyID;  ///< entry in the chunk
   int chunk = DummyID;  ///< data chunk (tree entry, message packet..)
   trackOrigin(int tid,int tch) : id(tid), chunk(tch) {}
-  trackOrigin() = defaults;
+  trackOrigin() = default;
 };
  
 ///< TPC track parameters propagated to reference X, with time bracket and index of
@@ -94,7 +94,7 @@ struct TrackLocTPC {
 ///< original track in the currently loaded ITS reco output
 struct TrackLocITS {
   o2::track::TrackParCov track;
-  trackOrigin soruce;        ///< track origin id
+  trackOrigin source;        ///< track origin id
   int roFrame = DummyID;     ///< ITS readout frame assigned to this track
   int matchID = DummyID;     ///< entry (non if DummyID) of its matchITS struct in the mMatchesITS
   float timeMin = 0.f;       ///< min. possible time (in TPC time-bin units)
@@ -117,7 +117,7 @@ struct matchTPC {
 ///< the ID of its 1st matchLink in the mMatchLinksITS container
 struct matchITS {
   trackOrigin source;        ///< track origin id
-  int first = DummiID;  ///< 1st match for this track in the mMatchRecordsITS
+  int first = DummyID;  ///< 1st match for this track in the mMatchRecordsITS
   matchITS(const trackOrigin& src) : source(src) {}
   matchITS() = default;
 };
@@ -130,15 +130,15 @@ struct matchRecordTPC {
   int nextRecID = DummyID;       ///< index of eventual next record
 
   matchRecordTPC(int itsMID, float chi2match) : matchITSID(itsMID), chi2(chi2match) {}
-  matchRecordTPC(int itsMID, float chi2match, int nxt) : matchITSIS(itsMID), chi2(chi2match), nextRecID(nxt) {}
+  matchRecordTPC(int itsMID, float chi2match, int nxt) : matchITSID(itsMID), chi2(chi2match), nextRecID(nxt) {}
   matchRecordTPC() = default;
-  ClassDefNV(matchRecordTPC,1);
 };
 
 struct matchRecordITS {
-  int matchTPCID;             ///< index of matchTPC structure of TPC track it is matched to
+  int matchTPCID = DummyID;   ///< index of matchTPC structure of TPC track it is matched to
   int nextRecID = DummyID;    ///< index of eventual next record
   matchRecordITS(int tpcMatchID) : matchTPCID(tpcMatchID) {}
+  matchRecordITS() = default;
 };
  
 class MatchTPCITS {
@@ -252,10 +252,11 @@ class MatchTPCITS {
   void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
 
   ///------------------- manipulations with matches records ----------------------
-  bool registerMatchRecordTPC(TrackLocITS& tITS,TrackLocTPC& tTPC, float& chi2);
+  bool registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, float& chi2);
+  void registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID);
+  void suppressMatchRecordITS(int matchITSID, int matchTPCID);
   matchTPC& getTPCMatchEntry(TrackLocTPC& tTPC);
   matchITS& getITSMatchEntry(TrackLocITS& tITS);
-  void suppressMatchRecordITS(int matchITSID, int matchTPCID);
   
   ///< get number of matching records for TPC track with matchTPC at matchTPCID 
   int getNMatchRecordsTPC(int matchTPCID) const;
