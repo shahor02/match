@@ -56,7 +56,7 @@ enum TimerLevel : int
 { // how often stop/start timer
   TimingOff, TimingTotal, TimingLoadData, TimingFillDebugTree, TimingPrintout, TimingAll
 };
-  
+
 ///< flags to tell the status of TPC-ITS tracks comparison
 enum TrackRejFlag : int {
   Accept = 0,
@@ -68,16 +68,24 @@ enum TrackRejFlag : int {
   RejectOnChi2,
   NSigmaShift = 10  
 };
-  
+
+///< identifier for the track entry
+struct trackOrigin {
+  int id    = DummyID;  ///< entry in the chunk
+  int chunk = DummyID;  ///< data chunk (tree entry, message packet..)
+  trackOrigin(int tid,int tch) : id(tid), chunk(tch) {}
+  trackOrigin() = defaults;
+};
+ 
 ///< TPC track parameters propagated to reference X, with time bracket and index of
 ///< original track in the currently loaded TPC reco output
 struct TrackLocTPC {
   o2::track::TrackParCov track;
-  int trOrigID = DummyID;   ///< original index of the TPC track in the input packet (tree entry)
-  int matchID = DummyID; ///< entry (non if DummyID) of its matchTPC struct in the mMatchRecordTPCs 
+  trackOrigin source;  ///< track origin id
+  int matchID = DummyID;     ///< entry (non if DummyID) of its matchTPC struct in the mMatchesTPC
   float timeMin = 0.f; ///< min. possible time (in TPC time-bin units)
   float timeMax = 0.f; ///< max. possible time (in TPC time-bin units)
-  TrackLocTPC(const o2::track::TrackParCov& src, int trid) : track(src),trOrigID(trid) {}
+  TrackLocTPC(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocTPC() = default;
   ClassDefNV(TrackLocTPC,1);
 };
@@ -86,14 +94,12 @@ struct TrackLocTPC {
 ///< original track in the currently loaded ITS reco output
 struct TrackLocITS {
   o2::track::TrackParCov track;
-  int trOrigID = DummyID;    ///< original index of the ITS track in the input packet (tree entry)
-  int eventID = DummyID;     ///< packet (tree entry) this track belongs to
+  trackOrigin soruce;        ///< track origin id
   int roFrame = DummyID;     ///< ITS readout frame assigned to this track
-  int matchID = DummyID;  ///< entry (non if DummyID) of its matchITS struct in the mMatchRecordITSs 
+  int matchID = DummyID;     ///< entry (non if DummyID) of its matchITS struct in the mMatchesITS
   float timeMin = 0.f;       ///< min. possible time (in TPC time-bin units)
   float timeMax = 0.f;       ///< max. possible time (in TPC time-bin units)
-  int matchID = DummyID;     ///< entry (none if DummyID) of the container XXX of matched ITS tracks  
-  TrackLocITS(const o2::track::TrackParCov& src, int trid, int evid) : track(src),trOrigID(trid),eventID(evid) {}
+  TrackLocITS(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
 };
@@ -101,16 +107,18 @@ struct TrackLocITS {
 ///< each TPC track having at least 1 matching ITS candidate records in matchTPC the
 ///< the ID of the 1st (best) matchRecordTPC in the mMatchRecordsTPC container
 struct matchTPC {
-  int first;  ///< 1st match for this track in the mMatchRecordsTPC
-  matchTPC(int id) : first(id) {}
+  trackOrigin source;        ///< track origin id
+  int first = DummyID;  ///< 1st match for this track in the mMatchRecordsTPC
+  matchTPC(const trackOrigin& src) : source(src) {}
   matchTPC() = default;
 };
 
-///< each ITS track having at least 1 matching TPC candidate records in matchITS the
+///< each ITS track having at least 1 matching TPC candidate records in matchITS the TODO
 ///< the ID of its 1st matchLink in the mMatchLinksITS container
 struct matchITS {
-  int first;  ///< 1st match for this track in the mMatchRecordsTPC
-  matchITS(int id) : first(id) {}
+  trackOrigin source;        ///< track origin id
+  int first = DummiID;  ///< 1st match for this track in the mMatchRecordsITS
+  matchITS(const trackOrigin& src) : source(src) {}
   matchITS() = default;
 };
  
@@ -120,24 +128,17 @@ struct matchRecordTPC {
   float chi2 = -1.f;             ///< matching chi2
   int matchITSID = DummyID;      ///< id of matchITS struct in mMatchesITS container
   int nextRecID = DummyID;       ///< index of eventual next record
-  matchRecordTPC(int itsMID, float chi2match) :
-    matchITSID(itsMID), chi2(chi2match) {}
-  matchRecordTPC(int itsMID, float chi2match, int nxt) :
-    matchITSIS(itsMID), chi2(chi2match), nextRecID(nxt) {}
+
+  matchRecordTPC(int itsMID, float chi2match) : matchITSID(itsMID), chi2(chi2match) {}
+  matchRecordTPC(int itsMID, float chi2match, int nxt) : matchITSIS(itsMID), chi2(chi2match), nextRecID(nxt) {}
   matchRecordTPC() = default;
   ClassDefNV(matchRecordTPC,1);
 };
 
-struct recordLink {
-  int recID = DummyID;        ///< record ID this link points to
-  int nextLinkID = DummyID;   ///< id of the next recordLink related to the owner of this link
-  recordLink(int rcid,int nextid) : recID(rcid), nextid(nextid) {}
-  recordLink() = default;
-};
-
 struct matchRecordITS {
-  int trOrigID  = DummyID;       ///< original index of the track in its packet (tree entry)
-  int eventID   = DummyID;       ///< packet (tree entry) the track belongs to
+  int matchTPCID;             ///< index of matchTPC structure of TPC track it is matched to
+  int nextRecID = DummyID;    ///< index of eventual next record
+  matchRecordITS(int tpcMatchID) : matchTPCID(tpcMatchID) {}
 };
  
 class MatchTPCITS {
@@ -152,9 +153,6 @@ class MatchTPCITS {
 
   ///< set ITS ROFrame duration in microseconds
   void setITSROFrame(float fums) { mITSROFrame = fums; }
-
-  ///< get number of matching records for TPC track
-  int getNMatchRecordsTPC(int tpcTrackID) const;
 
   ///< set chain containing ITS tracks 
   void setInputChainITS(TChain* chain) { mChainITS = chain;}
@@ -249,11 +247,23 @@ class MatchTPCITS {
   bool loadITSData();
   void doMatching(int sec);
   int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2) const;
-  bool registerMatchRecordTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2);
   float getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const;
   bool propagateToRefX(o2::track::TrackParCov &trc);
   void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
-  void printCandidates(); // temporary
+
+  ///------------------- manipulations with matches records ----------------------
+  bool registerMatchRecordTPC(TrackLocITS& tITS,TrackLocTPC& tTPC, float& chi2);
+  matchTPC& getTPCMatchEntry(TrackLocTPC& tTPC);
+  matchITS& getITSMatchEntry(TrackLocITS& tITS);
+  void suppressMatchRecordITS(int matchITSID, int matchTPCID);
+  
+  ///< get number of matching records for TPC track with matchTPC at matchTPCID 
+  int getNMatchRecordsTPC(int matchTPCID) const;
+  ///< get number of matching records for ITS track with matchITS at matchITSID 
+  int getNMatchRecordsITS(int matchITSID) const;
+    
+  void printCandidatesTPC(); // temporary
+  void printCandidatesITS(); // temporary
 
   
   ///< convert TPC time bin to ITS ROFrame units
@@ -357,10 +367,17 @@ class MatchTPCITS {
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mITSTrkLabels = nullptr; ///< input ITS Track MC labels
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< input TPC Track MC labels
   /// <<<-----
-  
-  std::vector<int> mMatchRecordTPCID; ///< refs on 1st matchRecord in mMatchRecordTPCs of each TPC track
-  std::vector<matchRecordTPC> mMatchRecordsTPC; ///< match records pool
 
+  ///< container for matchTPC structures (1 per TPCtrack with some matches to ITS)
+  std::vector<matchTPC> mMatchesTPC;
+  ///< container for matchITS structures (1 per ITStrack with some matches to TPC)
+  std::vector<matchITS> mMatchesITS; 
+
+  ///< container for record the match of TPC track to single ITS track
+  std::vector<matchRecordTPC> mMatchRecordsTPC; 
+  ///< container for reference to matchRecordTPC involving particular ITS track
+  std::vector<matchRecordITS> mMatchRecordsITS; 
+  
   std::vector<TrackLocTPC> mTPCWork; ///<TPC track params prepared for matching
   std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching
   std::vector<o2::MCCompLabel> mTPCLblWork; ///<TPC track labels
