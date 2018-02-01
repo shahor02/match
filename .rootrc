@@ -10,18 +10,18 @@ XNet.ReadAheadSize: 1000000
 # Paths are different for Unix and Windows. The example shows the defaults
 # for all ROOT applications for either Unix or Windows.
 Unix.*.Root.DynamicPath:    .:$(ROOTSYS)/lib:$(LD_LIBRARY_PATH)
-Unix.*.Root.MacroPath:      .:$(ROOTSYS)/macros:$(ALICESW)/mymacros:$(ALICE_ROOT)/macros:$(ALICE_ROOT)/EVE/macros:$(ALICE_ROOT/macros):$(ALICE_ROOT)/PWGPP/CalibMacros/CPass0:$(ALICE_ROOT)/PWGPP/CalibMacros/CPass1
-Unix.*.Root.IncludePath:    -I$(ALICESW)/mymacros -I$ALICE_ROOT/include 
-WinNT.*.Root.DynamicPath:   ./;$ROOTSYS;$ROOTSYS/bin;$PATH
-WinNT.*.Root.MacroPath:     ./;$ROOTSYS/macros
+Unix.*.Root.MacroPath:      .:$(ROOTSYS)/macros
+WinNT.*.Root.DynamicPath:   ./;$(ROOTSYS);$(ROOTSYS)/bin;$(PATH)
+WinNT.*.Root.MacroPath:     ./;$(ROOTSYS)/macros
 
 # Fix include path for aclic
-ACLiC.IncludePaths:	-I$(ALICESW)/mymacros -I$(ALICE_ROOT)/include -I$(ALICE_PHYSICS)/include -I$(ALICE_ROOT)/../src/ 
+#ACLiC.IncludePaths:	-I$(ALICE_ROOT)/include -I$(HOME)/ALICE/mymacros -I$(ALICE_ROOT) -I$(ALICE_ROOT)/ITS -I$(ALICE_ROOT)/MUON -I$(ALICE_ROOT)/MUON/mapping -I$(ALICE_ROOT)/ITS/UPGRADE/testITSU -I$(ALICE_ROOT)/ITS/UPGRADE -I$(ALICE_ROOT)/ITS/UPGRADE  -I$(ALICE_ROOT)/ITS
+#ACLiC.IncludePaths:	-I$(ALICE_ROOT)/include -I$(ALICE_ROOT) -I$(ALICE_SW)/mymacros 
 
 
 # Path where to look for TrueType fonts
 #Unix.*.Root.UseTTFonts:     true
-#Unix.*.Root.TTFontPath:     $ROOTSYS/ttf/fonts
+#Unix.*.Root.TTFontPath:     $(ROOTSYS)/ttf/fonts
 
 # Show where item is found in the specified path
 Root.ShowPath:           false
@@ -103,7 +103,7 @@ Rint.Canvas.HighLightColor:      5
 
 XSec.GSI.DelegProxy:                     2
 af.proofmode:                            1
-af.userhost:                             alice-caf.cern.ch
+af.userhost:                             shahoian:default@alice-caf.cern.ch
 af.aliendsrepo:                          /alice/cern.ch/user/s/shahoian/aaf_datasets
 af.dspath:                               /pool/PROOF-AAF/proof/dataset
 af.redirurl:                             root://alice-caf.cern.ch/$1

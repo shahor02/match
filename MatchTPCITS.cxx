@@ -55,7 +55,8 @@ void MatchTPCITS::run()
   if (!mInitDone) {
     LOG(FATAL)<<"init() was not done yet"<<FairLogger::endl;
   }
-  mTimer.Start();
+
+  timingOn(TimingTotal);
   
   while(prepareTPCData()) {
     while(prepareITSData()) {
@@ -66,9 +67,11 @@ void MatchTPCITS::run()
     printCandidates();
   }
 
-  mTimer.Stop();
-  mTimer.Print();
+  timingOff(TimingTotal);
 
+  if (mTimingLevel>=TimingTotal) {
+    mTimer.Print();
+  }
 #ifdef _ALLOW_DEBUG_TREES_
   mDBGOut.reset();
 #endif
@@ -83,7 +86,7 @@ void MatchTPCITS::init()
     return;
   }
   mYMaxAtXRef = mXRef*std::tan(o2::constants::math::SectorSpanRad*0.5); ///< max Y in the sector at reference X
-  mSectEdgeMargin2 = mCrudeAbsDiff[o2::track::kY]*mCrudeAbsDiff[o2::track::kY]; ///< precalculated ^2
+  mSectEdgeMargin2 = mCrudeAbsDiffCut[o2::track::kY]*mCrudeAbsDiffCut[o2::track::kY]; ///< precalculated ^2
 
   const auto & gasParam = o2::TPC::ParameterGas::defaultInstance();
   const auto & elParam = o2::TPC::ParameterElectronics::defaultInstance();
@@ -112,6 +115,8 @@ void MatchTPCITS::init()
 #endif
 
   mInitDone = true;
+
+  print();
   
 }
 
@@ -175,13 +180,10 @@ bool MatchTPCITS::prepareTPCData()
   ///< load next chunk of TPC data and prepare for matching
   mMatchRecordID.clear();
   mMatchRecords.clear();
-  
-  mTimer.Stop();
+
   if (!loadTPCData()) {
-    mTimer.Start(kFALSE);
     return false;
   }
-  mTimer.Start(kFALSE);
 
   // prepare empty matching records for each TPC track
   mMatchRecordID.resize(mTPCTracksArrayInp->size(),MatchRecord::Dummy);
@@ -273,12 +275,10 @@ bool MatchTPCITS::prepareTPCData()
 bool MatchTPCITS::prepareITSData()
 {
   // load next chunk of ITS data and prepare for matching
-  mTimer.Stop();
+  
   if (!loadITSData()) {
-    mTimer.Start(kFALSE);
     return false;
   }
-  mTimer.Start(kFALSE);
   
   int ntr = mITSTracksArrayInp->size();
   mITSWork.clear();
@@ -391,6 +391,8 @@ bool MatchTPCITS::prepareITSData()
 bool MatchTPCITS::loadITSData()
 {
   ///< load next chunk of ITS data
+  timingOff(TimingLoadData);
+  
   while(++mCurrITSTreeEntry < mChainITS->GetEntries()) {
     mChainITS->GetEntry(mCurrITSTreeEntry);
     LOG(INFO)<<"Starting ITS entry "<<mCurrITSTreeEntry<<" -> "
@@ -399,8 +401,10 @@ bool MatchTPCITS::loadITSData()
       continue;
     }
     return true;
+    timingOn(TimingLoadData);
   }
   --mCurrITSTreeEntry;
+  timingOn(TimingLoadData);
   return false;
 }
 
@@ -408,6 +412,8 @@ bool MatchTPCITS::loadITSData()
 bool MatchTPCITS::loadTPCData()
 {
   ///< load next chunk of TPC data
+  timingOff(TimingLoadData);
+  
   while(++mCurrTPCTreeEntry < mChainTPC->GetEntries()) {
     mChainTPC->GetEntry(mCurrTPCTreeEntry);
     LOG(INFO)<<"Starting TPC entry "<<mCurrTPCTreeEntry<<" -> "
@@ -415,9 +421,12 @@ bool MatchTPCITS::loadTPCData()
     if (mTPCTracksArrayInp->size()<1) {
       continue;
     }
+    timingOn(TimingLoadData);
     return true;
   }
   --mCurrTPCTreeEntry;
+
+  timingOn(TimingLoadData);
   return false;
 }
 
@@ -448,8 +457,10 @@ void MatchTPCITS::doMatching(int sec)
 	     cacheTPC.size()-1<<FairLogger::endl;
     return;
   }
-  int idxMinTPC = tbinStartTPC[minROFITS]; // index of 1st cached TPC track within cached ITS ROFrames
   
+  int nCheckTPCControl = 0, nCheckITSControl = 0, nMatchesControl = 0; // temporary
+
+  int idxMinTPC = tbinStartTPC[minROFITS]; // index of 1st cached TPC track within cached ITS ROFrames
   for (int itpc=idxMinTPC;itpc<nTracksTPC; itpc++) {
     auto & trefTPC = mTPCWork[ cacheTPC[itpc] ];
     // estimate ITS 1st ROframe bin this track may match to: TPC track are sorted according to their
@@ -458,7 +469,8 @@ void MatchTPCITS::doMatching(int sec)
     if (itsROBin>=int(tbinStartITS.size())) { // time of TPC track exceeds the max time of ITS in the cache
       break;
     }
-    int iits0 = tbinStartITS[itsROBin];    
+    int iits0 = tbinStartITS[itsROBin];
+    nCheckTPCControl++;
     for (auto iits=iits0;iits<nTracksITS;iits++) {
       auto &trefITS = mITSWork[ cacheITS[iits] ];
       // compare if the ITS and TPC tracks may overlap in time
@@ -467,6 +479,7 @@ void MatchTPCITS::doMatching(int sec)
 	//all following ITS tracks also will not match
 	break;
       }
+      nCheckITSControl++;
       float chi2 = -1;
       int rejFlag = compareITSTPCTracks(trefITS,trefTPC,chi2);
 
@@ -489,8 +502,13 @@ void MatchTPCITS::doMatching(int sec)
       }
       if (rejFlag!=Accept) continue;
       registerMatchRecord(trefITS,trefTPC,chi2);// register matching candidate
+      nMatchesControl++;
     }    
-  }  
+  }
+
+  // RS: this is temporary dump
+  printf("TPC track checked: %d (starting from %d), total checks: %d, total matches: %d\n",
+	 nCheckTPCControl,idxMinTPC,nCheckITSControl,nMatchesControl);
 }
 
 //______________________________________________
@@ -560,62 +578,66 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
 
   // start with check on Tgl, since rjection on it will allow to profit from sorting
   diff = trackITS.getParam(o2::track::kTgl)-trackTPC.getParam(o2::track::kTgl);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kTgl], RejectOnTgl)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kTgl], RejectOnTgl)) ) {
     return rejFlag;
   }
   diff *= diff/(trackITS.getDiagError2(o2::track::kTgl)+trackTPC.getDiagError2(o2::track::kTgl));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kTgl], RejectOnTgl+NSigmaShift)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigmaCut[o2::track::kTgl], RejectOnTgl+NSigmaShift)) ) {
     return rejFlag;
   }
 
   diff = trackITS.getParam(o2::track::kY)-trackTPC.getParam(o2::track::kY);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kY], RejectOnY)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kY], RejectOnY)) ) {
     return rejFlag;
   }
   diff *= diff/(trackITS.getDiagError2(o2::track::kY)+trackTPC.getDiagError2(o2::track::kY));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kY], RejectOnY+NSigmaShift)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigmaCut[o2::track::kY], RejectOnY+NSigmaShift)) ) {
     return rejFlag;
   }
   
   if (mCompareTracksDZ) { // in continuous mode we usually don't use DZ
     diff = trackITS.getParam(o2::track::kZ)-trackTPC.getParam(o2::track::kZ);
-    if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kZ],RejectOnZ)) ) {
+    if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kZ],RejectOnZ)) ) {
       return rejFlag;
     }
     diff *= diff/(trackITS.getDiagError2(o2::track::kZ)+trackTPC.getDiagError2(o2::track::kZ));
-    if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kZ], RejectOnZ+NSigmaShift)) ) {
+    if ( (rejFlag=roughCheckDif(diff,mCrudeNSigmaCut[o2::track::kZ], RejectOnZ+NSigmaShift)) ) {
       return rejFlag;
     }    
   }
 
   diff = trackITS.getParam(o2::track::kSnp)-trackTPC.getParam(o2::track::kSnp);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kSnp], RejectOnSnp)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kSnp], RejectOnSnp)) ) {
     return rejFlag;
   }
   diff *= diff/(trackITS.getDiagError2(o2::track::kSnp)+trackTPC.getDiagError2(o2::track::kSnp));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kSnp], RejectOnSnp+NSigmaShift)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigmaCut[o2::track::kSnp], RejectOnSnp+NSigmaShift)) ) {
     return rejFlag;
   }
   
   diff = trackITS.getParam(o2::track::kQ2Pt)-trackTPC.getParam(o2::track::kQ2Pt);
-  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiff[o2::track::kQ2Pt], RejectOnQ2Pt)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kQ2Pt], RejectOnQ2Pt)) ) {
     return rejFlag;
   }
   diff *= diff/(trackITS.getDiagError2(o2::track::kQ2Pt)+trackTPC.getDiagError2(o2::track::kQ2Pt));
-  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma[o2::track::kQ2Pt], RejectOnQ2Pt+NSigmaShift)) ) {
+  if ( (rejFlag=roughCheckDif(diff,mCrudeNSigmaCut[o2::track::kQ2Pt], RejectOnQ2Pt+NSigmaShift)) ) {
     return rejFlag;
   }
 
   // calculate mutual chi2 excluding Z in continuos mode
   chi2 = getPredictedChi2NoZ(tITS.track,tTPC.track);
-  if (chi2>mCutChi2TPCITS) return RejectOnChi2;
+  if (chi2>mCutMatchingChi2) return RejectOnChi2;
 
   return Accept;
 }
 
 //______________________________________________
-void MatchTPCITS::printCandidates() const // temporary
+void MatchTPCITS::printCandidates() // temporary
 {
+  ///< print mathing records
+  
+  timingOff(TimingPrintout);
+
   for (int itr=0;itr<int(mTPCTracksArrayInp->size());itr++) {
     int nrec = getNMatchRecords(itr);
     printf("*** trackTPC#%5d : Ncand = %d\n",itr,nrec);
@@ -627,6 +649,9 @@ void MatchTPCITS::printCandidates() const // temporary
       count++;
     }
   }
+
+  timingOn(TimingPrintout);
+  
 }
 
 //______________________________________________
@@ -719,7 +744,50 @@ bool MatchTPCITS::propagateToRefX(o2::track::TrackParCov &trc)
   
 }
 
+//______________________________________________
+void MatchTPCITS::print() const
+{
+  ///< print all settings
+  printf("\n******************** TPC-ITS matching component ********************\n");
+  if (!mInitDone) {
+    printf("init is not done yet\n");
+    return;
+  }
 
+  printf("MC truth: %s\n",mMCTruthON ? "on":"off");
+  printf("Matching reference X: %.3f\n",mXRef);
+  printf("Account Z dimension: %s\n",mCompareTracksDZ ? "on":"off");
+  printf("Cut on matching chi2: %.3f\n",mCutMatchingChi2);
+  printf("Max number ITS candidates per TPC track: %d\n",mMaxMatchCandidates);
+  printf("Crude cut on track params: ");
+  for (int i=0;i<o2::track::kNParams;i++) {
+    printf(" %.3e",mCrudeAbsDiffCut[i]);
+  }
+  printf("\n");
+
+  printf("N Sigma cut on track params: ");
+  for (int i=0;i<o2::track::kNParams;i++) {
+    printf(" %6.2f",mCrudeNSigmaCut[i]);
+  }
+  printf("\n");
+
+  printf("TPC-ITS time(bins) bracketing safety margin: %6.2f\n",mTimeBinTolerance);
+  printf("TPC Z->time(bins) bracketing safety margin: %6.2f\n",mTPCTimeEdgeZSafeMargin);
+
+#ifdef _ALLOW_DEBUG_TREES_
+  
+  printf("Output debug tree (%s) file: %s\n",mDBGFlags ? "on":"off",mDebugTreeFileName.data());
+  if (getDebugFlags()) {
+    printf("Debug stream flags:\n");
+    if ( isDebugFlag(MatchTreeAll|MatchTreeAccOnly) ) {
+      printf("* matching canditate pairs: %s\n", isDebugFlag(MatchTreeAccOnly) ? "accepted":"all");
+    }
+  }
+#endif
+
+  
+  printf("**********************************************************************\n");
+}
 
 #ifdef _ALLOW_DEBUG_TREES_
 //______________________________________________
@@ -738,7 +806,9 @@ void MatchTPCITS::setDebugFlag(UInt_t flag, bool on)
 void MatchTPCITS::fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float chi2)
 {
   ///< fill debug tree for ITS TPC tracks matching check
-  mTimer.Stop();
+
+  timingOff(TimingFillDebugTree);
+  
   auto &trackITS = mITSWork[ itsID ];
   auto &trackTPC = mTPCWork[ tpcID ];
   if (chi2<0.) { // need to recalculate
@@ -753,6 +823,6 @@ void MatchTPCITS::fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float c
   }
   (*mDBGOut)<<"match"<<"rejFlag="<<rejFlag<<"\n";
 
-  mTimer.Start(kFALSE);
+  timingOn(TimingFillDebugTree);
 }
 #endif

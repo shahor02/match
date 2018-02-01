@@ -50,6 +50,11 @@ class TrackTPC;
 namespace globaltracking
 {
 
+enum TimerLevel : int
+{ // how often stop/start timer
+  TimingOff, TimingTotal, TimingLoadData, TimingFillDebugTree, TimingPrintout, TimingAll
+};
+  
 ///< flags to tell the status of TPC-ITS tracks comparison
 enum TrackRejFlag : int {
   Accept = 0,
@@ -126,6 +131,55 @@ class MatchTPCITS {
   ///< set chain containing TPC tracks 
   void setInputChainTPC(TChain* chain) { mChainTPC = chain;}
 
+  ///< print settings
+  void print() const;
+
+  ///< set timing level
+  void setTimingLevel(int v) { mTimingLevel = v; }
+  ///< get timing level
+  bool getTimingLevel() const { return mTimingLevel; }
+
+  //>>> ====================== cuts ================================>>>
+  
+  ///< set cuts on absolute difference of ITS vs TPC track parameters
+  void setCrudeAbsDiffCut(const std::array<float,o2::track::kNParams> &vals) {
+    mCrudeAbsDiffCut = vals;
+  }
+  ///< get cuts on absolute difference of ITS vs TPC track parameters
+  const std::array<float,o2::track::kNParams> & getCrudeAbsDiffCut() const {
+    return mCrudeAbsDiffCut;
+  }
+
+  ///< set cuts on absolute difference of ITS vs TPC track parameters
+  void setCrudeNSigmaCut(const std::array<float,o2::track::kNParams> &vals) {
+    mCrudeNSigmaCut = vals;
+  }
+  ///< get cuts on absolute difference of ITS vs TPC track parameters
+  const std::array<float,o2::track::kNParams> & getCrudeNSigmaCut() const {
+    return mCrudeNSigmaCut;
+  }
+
+  ///< set cut matching chi2
+  void setCutMatchingChi2(float val) { mCutMatchingChi2 = val; }
+  ///< get cut on matching chi2
+  float getCutMatchingChi2() const { return mCutMatchingChi2; }
+
+  ///< set max number of matching candidates to consider
+  void setMaxMatchCandidates(int n) { mMaxMatchCandidates = n>1 ? 1:n; }
+  ///< get max number of matching candidates to consider
+  int  getMaxMatchCandidates() const { return mMaxMatchCandidates; }
+
+  ///< set tolerance (TPC time bins) on ITS-TPC times comparison
+  void setTimeBinTolerance(float val) {  mTimeBinTolerance = val; }
+  ///< get tolerance (TPC time bins) on ITS-TPC times comparison
+  float getTimeBinTolerance() const {  return mTimeBinTolerance; }
+
+  ///< set tolerance on TPC time-bins estimate from highest cluster Z
+  void setTPCTimeEdgeZSafeMargin(float val) {  mTPCTimeEdgeZSafeMargin = val; }
+  ///< get tolerance on TPC time-bins estimate from highest cluster Z
+  float getTPCTimeEdgeZSafeMargin() const {  return mTPCTimeEdgeZSafeMargin; }
+  
+  //<<< ====================== cuts ================================<<<
   
 #ifdef _ALLOW_DEBUG_TREES_
   enum DebugFlagTypes : UInt_t {
@@ -168,7 +222,7 @@ class MatchTPCITS {
   float getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const;
   bool propagateToRefX(o2::track::TrackParCov &trc);
   void addTrackCloneForNeighbourSector(const TrackLocITS& src, int sector);
-  void printCandidates() const; // temporary
+  void printCandidates(); // temporary
 
   
   ///< convert TPC time bin to ITS ROFrame units
@@ -197,6 +251,22 @@ class MatchTPCITS {
     return delta>toler ? rejFlag : (delta<-toler ? -rejFlag : Accept);
   }
 
+  ///< start timing if current level timing is allowed
+  void timingOn(TimerLevel lev) {
+    if (mTimingLevel >= lev) {
+      mTimer.Start(false);
+    }
+  }
+
+  ///< stop timing if current level timing is allowed
+  void timingOff(TimerLevel lev) {
+    if (mTimingLevel >= lev) {
+      mTimer.Stop();
+    }
+  }
+  
+  //================================================================
+  
   bool mInitDone = false;   ///< flag init already done
   
   int mCurrTPCTreeEntry=-1; ///< current TPC tree entry loaded to memory
@@ -211,10 +281,13 @@ class MatchTPCITS {
   bool mCompareTracksDZ = false;
   
   ///<tolerance on abs. different of ITS/TPC params
-  std::array<float,o2::track::kNParams> mCrudeAbsDiff = {2.f, 2.f, 0.2f, 0.2f, 4.f};
+  std::array<float,o2::track::kNParams> mCrudeAbsDiffCut = {2.f, 2.f, 0.2f, 0.2f, 4.f};
+  
   ///<tolerance on per-component ITS/TPC params NSigma
-  std::array<float,o2::track::kNParams> mCrudeNSigma = {49.f,49.f,49.f,49.f,49.f};
-  float mCutChi2TPCITS = 200.f;  ///< cut on matching chi2
+  std::array<float,o2::track::kNParams> mCrudeNSigmaCut = {49.f,49.f,49.f,49.f,49.f};
+
+  float mCutMatchingChi2 = 200.f;  ///< cut on matching chi2
+
   float mSectEdgeMargin2 = 0.;   ///< crude check if ITS track should be matched also in neighbouring sector
 
   int mMaxMatchCandidates = 5; ///< max allowed matching candidates per TPC track
@@ -231,7 +304,7 @@ class MatchTPCITS {
   ///< assigned time0 and its track Z position (converted from mTPCTimeEdgeZSafeMargin)
   float mTPCTimeEdgeTSafeMargin = 0.f;
 
-  float mTimeBinTolerance = 10.; ///<tolerance in time-bin for ITS-TPC time bracket matching
+  float mTimeBinTolerance = 10.f; ///<tolerance in time-bin for ITS-TPC time bracket matching
 
   float mITSROFrame = -1.; ///< ITS RO frame in \mus
   float mTPCVDrift0 = -1.; ///< TPC nominal drift speed in cm/microseconds
@@ -292,6 +365,7 @@ class MatchTPCITS {
   static constexpr float MaxSnp = 0.85;
   static constexpr float MaxTgp = 1.61357f; // max tg corresponting to MaxSnp = MaxSnp/std::sqrt((1.-MaxSnp)*(1.+MaxSnp));
 
+  int mTimingLevel = TimingAll;
   TStopwatch mTimer;
   
   ClassDefNV(MatchTPCITS,1);
