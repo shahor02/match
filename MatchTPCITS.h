@@ -142,7 +142,7 @@ struct matchITS {
 ///< the next (worse chi2) matchRecord of the same TPC or ITS track 
 struct matchRecord {
   float chi2 = -1.f;             ///< matching chi2
-  int matchID = DummyID;      ///< id of matchITS struct in mMatchesITS container
+  int matchID = DummyID;         ///< id of parnter matchITS or matchTPC struct in mMatchesITS/TPC container
   int nextRecID = DummyID;       ///< index of eventual next record
 
   matchRecord(int itsMID, float chi2match) : matchID(itsMID), chi2(chi2match) {}

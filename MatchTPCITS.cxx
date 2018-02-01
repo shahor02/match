@@ -127,6 +127,22 @@ void MatchTPCITS::init()
 }
 
 //______________________________________________
+void MatchTPCITS::selectBestMatches()
+{
+  ///< loop over match records and select the ones with best chi2
+  LOG(INFO)<<"Selecting best matches for "<<mMatchesTPC.size()<<" TPC tracks"<<FairLogger::endl;
+
+  for (const auto & tpcMatch : mMatchesTPC) {
+
+    recID = tpcMatch.first;
+
+    auto& matchRecTPC = mMatchRecordsTPC[recID];
+    auto& itsMatch = mMatchesITS[matchRecTPC.matchID];
+  }
+
+}
+  
+//______________________________________________
 int MatchTPCITS::getNMatchRecordsTPC(const matchTPC& tpcMatch) const
 {
   ///< get number of matching records for TPC track referring to this matchTPC
