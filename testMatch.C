@@ -37,9 +37,9 @@ void testMatch(std::string path = "./"
 #ifdef _ALLOW_DEBUG_TREES_
   matching.setDebugTreeFileName(path+matching.getDebugTreeFileName());
   // dump accepted pairs only
-  //  matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAccOnly);
+  // matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAccOnly);
   // dump all checked pairs
-  // matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAll);
+  //  matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAll);
 #endif
   
   //-------- init geometry and field --------//
@@ -50,9 +50,9 @@ void testMatch(std::string path = "./"
   matching.setITSROFrame(10.0f);      // ITS ROFrame duration in \mus
   matching.setCutMatchingChi2(100.);
   std::array<float,o2::track::kNParams> cutsAbs = {2.f, 2.f, 0.2f, 0.2f, 4.f};
-  std::array<float,o2::track::kNParams> cutsNSig = {49.f,49.f,49.f,49.f,49.f};
+  std::array<float,o2::track::kNParams> cutsNSig2 = {49.f,49.f,49.f,49.f,49.f};
   matching.setCrudeAbsDiffCut(cutsAbs);
-  matching.setCrudeNSigmaCut(cutsNSig);
+  matching.setCrudeNSigma2Cut(cutsNSig2);
   
   matching.init();
 

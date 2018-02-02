@@ -50,7 +50,8 @@ class TrackTPC;
 namespace globaltracking
 {
 
-constexpr int DummyID = -1;
+constexpr int MinusOne = -1;
+constexpr int Validated = -2; 
   
 enum TimerLevel : int
 { // how often stop/start timer
@@ -83,8 +84,8 @@ struct timeBracket {
  
 ///< identifier for the track entry
 struct trackOrigin {
-  int id    = DummyID;  ///< entry in the chunk
-  int chunk = DummyID;  ///< data chunk (tree entry, message packet..)
+  int id    = MinusOne;  ///< entry in the chunk
+  int chunk = MinusOne;  ///< data chunk (tree entry, message packet..)
   trackOrigin(int tid,int tch) : id(tid), chunk(tch) {}
   trackOrigin() = default;
   void set(int tid,int tch) {
@@ -99,7 +100,7 @@ struct TrackLocTPC {
   o2::track::TrackParCov track;
   trackOrigin source;  ///< track origin id
   timeBracket timeBins;      ///< bracketing time-bins
-  int matchID = DummyID;     ///< entry (non if DummyID) of its matchTPC struct in the mMatchesTPC
+  int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchTPC struct in the mMatchesTPC
   TrackLocTPC(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocTPC() = default;
   ClassDefNV(TrackLocTPC,1);
@@ -111,8 +112,8 @@ struct TrackLocITS {
   o2::track::TrackParCov track;
   trackOrigin source;        ///< track origin id
   timeBracket timeBins;      ///< bracketing time-bins
-  int roFrame = DummyID;     ///< ITS readout frame assigned to this track
-  int matchID = DummyID;     ///< entry (non if DummyID) of its matchITS struct in the mMatchesITS
+  int roFrame = MinusOne;     ///< ITS readout frame assigned to this track
+  int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchITS struct in the mMatchesITS
   TrackLocITS(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
@@ -124,7 +125,7 @@ struct TrackLocITS {
 ///< the ID of the 1st (best) matchRecord in the mMatchRecordsTPC container
 struct matchTPC {
   trackOrigin source;        ///< track origin id
-  int first = DummyID;  ///< 1st match for this track in the mMatchRecordsTPC
+  int first = MinusOne;  ///< 1st match for this track in the mMatchRecordsTPC
   matchTPC(const trackOrigin& src) : source(src) {}
   matchTPC() = default;
 };
@@ -133,7 +134,7 @@ struct matchTPC {
 ///< the ID of its 1st matchLink in the mMatchLinksITS container
 struct matchITS {
   trackOrigin source;        ///< track origin id
-  int first = DummyID;  ///< 1st match for this track in the mMatchRecordsITS
+  int first = MinusOne;  ///< 1st match for this track in the mMatchRecordsITS
   matchITS(const trackOrigin& src) : source(src) {}
   matchITS() = default;
 };
@@ -142,8 +143,8 @@ struct matchITS {
 ///< the next (worse chi2) matchRecord of the same TPC or ITS track 
 struct matchRecord {
   float chi2 = -1.f;             ///< matching chi2
-  int matchID = DummyID;         ///< id of parnter matchITS or matchTPC struct in mMatchesITS/TPC container
-  int nextRecID = DummyID;       ///< index of eventual next record
+  int matchID = MinusOne;         ///< id of parnter matchITS or matchTPC struct in mMatchesITS/TPC container
+  int nextRecID = MinusOne;       ///< index of eventual next record
 
   matchRecord(int itsMID, float chi2match) : matchID(itsMID), chi2(chi2match) {}
   matchRecord(int itsMID, float chi2match, int nxt) : matchID(itsMID), chi2(chi2match), nextRecID(nxt) {}
@@ -191,13 +192,13 @@ class MatchTPCITS {
     return mCrudeAbsDiffCut;
   }
 
-  ///< set cuts on absolute difference of ITS vs TPC track parameters
-  void setCrudeNSigmaCut(const std::array<float,o2::track::kNParams> &vals) {
-    mCrudeNSigmaCut = vals;
+  ///< set cuts on difference^2/sig^2 of ITS vs TPC track parameters
+  void setCrudeNSigma2Cut(const std::array<float,o2::track::kNParams> &vals) {
+    mCrudeNSigma2Cut = vals;
   }
   ///< get cuts on absolute difference of ITS vs TPC track parameters
-  const std::array<float,o2::track::kNParams> & getCrudeNSigmaCut() const {
-    return mCrudeNSigmaCut;
+  const std::array<float,o2::track::kNParams> & getCrudeNSigma2Cut() const {
+    return mCrudeNSigma2Cut;
   }
 
   ///< set cut matching chi2
@@ -258,7 +259,16 @@ class MatchTPCITS {
   bool loadTPCData();
   bool loadITSData();
   void doMatching(int sec);
+
   void selectBestMatches();
+  bool validateTPCMatch(int mtID);
+  void removeITSfromTPC(int itsMatchID, int tpcMatchID);
+  void removeTPCfromITS(int tpcMatchID, int itsMatchID);
+  bool isValidatedTPC(const matchTPC& m);
+  bool isValidatedITS(const matchITS& m);
+  bool isDisabledTPC(const matchTPC& m);
+  bool isDisabledITS(const matchITS& m);
+  
   int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2) const;
   float getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const;
   bool propagateToRefX(o2::track::TrackParCov &trc);
@@ -279,11 +289,11 @@ class MatchTPCITS {
   
   ///< get number of matching records for TPC track referring to matchTPS struct with matchTPCID
   int getNMatchRecordsTPC(int matchTPCID) const {
-    return matchTPCID==DummyID ? 0 : getNMatchRecordsTPC(mMatchesTPC[matchTPCID]);
+    return matchTPCID<0 ? 0 : getNMatchRecordsTPC(mMatchesTPC[matchTPCID]);
   }
   ///< get number of matching records for ITS track referring to matchITS struct with matchITSID
   int getNMatchRecordsITS(int matchITSID) const {    
-    return matchITSID==DummyID ? 0 : getNMatchRecordsITS(mMatchesITS[matchITSID]);
+    return matchITSID<0 ? 0 : getNMatchRecordsITS(mMatchesITS[matchITSID]);
   }     
   
   ///< convert TPC time bin to ITS ROFrame units
@@ -345,7 +355,7 @@ class MatchTPCITS {
   std::array<float,o2::track::kNParams> mCrudeAbsDiffCut = {2.f, 2.f, 0.2f, 0.2f, 4.f};
   
   ///<tolerance on per-component ITS/TPC params NSigma
-  std::array<float,o2::track::kNParams> mCrudeNSigmaCut = {49.f,49.f,49.f,49.f,49.f};
+  std::array<float,o2::track::kNParams> mCrudeNSigma2Cut = {49.f,49.f,49.f,49.f,49.f};
 
   float mCutMatchingChi2 = 200.f;  ///< cut on matching chi2
 
@@ -435,6 +445,7 @@ class MatchTPCITS {
 
   int mTimingLevel = TimingAll;
   TStopwatch mTimer;
+  TStopwatch mTimerReg;
   
   ClassDefNV(MatchTPCITS,1);
 };
@@ -446,7 +457,7 @@ inline matchTPC& MatchTPCITS::getTPCMatchEntry(TrackLocTPC& tTPC)
 {
   ///< return the matchTPC entry referred by the tTPC track,
   ///< create if neaded
-  if (tTPC.matchID == DummyID) { // does this TPC track already have any match? If not, create matchTPC entry 
+  if (tTPC.matchID == MinusOne) { // does this TPC track already have any match? If not, create matchTPC entry 
     tTPC.matchID = mMatchesTPC.size();
     mMatchesTPC.emplace_back(tTPC.source);
     return mMatchesTPC.back();
@@ -459,7 +470,7 @@ inline matchITS& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
 {
   ///< return the matchITS entry referred by the tITS track,
   ///< create if neaded
-  if (tITS.matchID == DummyID) { // does this ITS track already have any match? If not, create matchITS entry 
+  if (tITS.matchID == MinusOne) { // does this ITS track already have any match? If not, create matchITS entry 
     tITS.matchID = mMatchesITS.size();
     mMatchesITS.emplace_back(tITS.source);
     return mMatchesITS.back();
@@ -467,6 +478,75 @@ inline matchITS& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
   return mMatchesITS[tITS.matchID];
 }
 
+//______________________________________________
+inline bool MatchTPCITS::isValidatedTPC(const matchTPC& m)
+{
+  return m.first>MinusOne && mMatchRecordsTPC[m.first].nextRecID == Validated;
+}
+
+//______________________________________________
+inline bool MatchTPCITS::isValidatedITS(const matchITS& m)
+{
+  return m.first>MinusOne && mMatchRecordsITS[m.first].nextRecID == Validated;
+}
+
+//______________________________________________
+inline bool MatchTPCITS::isDisabledITS(const matchITS& m)
+{
+  return m.first<0;
+}
+
+//______________________________________________
+inline bool MatchTPCITS::isDisabledTPC(const matchTPC& m)
+{
+  return m.first<0;
+}
+
+//______________________________________________
+inline void MatchTPCITS::removeTPCfromITS(int tpcMatchID, int itsMatchID)
+{
+  ///< remove reference to TPC match tpcMatchID from ITS match itsMatchID
+  auto & itsMatch = mMatchesITS[itsMatchID];
+  if (isValidatedITS(itsMatch)) return;
+  int topID=MinusOne, next = itsMatch.first;
+  while (next>MinusOne) {
+    auto &rcITS = mMatchRecordsITS[next];
+    if (rcITS.matchID == tpcMatchID) {
+      if (topID<0) {
+	itsMatch.first = rcITS.nextRecID;
+      }
+      else {
+	mMatchRecordsITS[topID].nextRecID = rcITS.nextRecID;
+      }
+      return;
+    }
+    topID = next;
+    next = rcITS.nextRecID;
+  }
+}
+
+//______________________________________________
+inline void MatchTPCITS::removeITSfromTPC(int itsMatchID, int tpcMatchID)
+{
+  ///< remove reference to ITS match itsMatchID from TPC match tpcMatchID
+  auto & tpcMatch = mMatchesTPC[tpcMatchID];
+  if (isValidatedTPC(tpcMatch)) return;
+  int topID=MinusOne, next = tpcMatch.first;
+  while (next>MinusOne) {
+    auto &rcTPC = mMatchRecordsTPC[next];
+    if (rcTPC.matchID == itsMatchID) {
+      if (topID<0) {
+	tpcMatch.first = rcTPC.nextRecID;
+      }
+      else {
+	mMatchRecordsTPC[topID].nextRecID = rcTPC.nextRecID;
+      }
+      return;
+    }
+    topID = next;
+    next = rcTPC.nextRecID;
+  }
+}
 
  
 }
