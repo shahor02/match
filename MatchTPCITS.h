@@ -258,6 +258,7 @@ class MatchTPCITS {
   bool loadTPCData();
   bool loadITSData();
   void doMatching(int sec);
+  void selectBestMatches();
   int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2) const;
   float getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const;
   bool propagateToRefX(o2::track::TrackParCov &trc);
@@ -313,16 +314,16 @@ class MatchTPCITS {
 
   ///< start timing if current level timing is allowed
   void timingOn(TimerLevel lev) {
-    if (mTimingLevel >= lev) {
+    //    if (mTimingLevel >= lev) {
       mTimer.Start(false);
-    }
+      //    }
   }
 
   ///< stop timing if current level timing is allowed
   void timingOff(TimerLevel lev) {
-    if (mTimingLevel >= lev) {
+    //    if (mTimingLevel >= lev) {
       mTimer.Stop();
-    }
+      //    }
   }
   
   //================================================================

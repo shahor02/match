@@ -132,16 +132,26 @@ void MatchTPCITS::selectBestMatches()
   ///< loop over match records and select the ones with best chi2
   LOG(INFO)<<"Selecting best matches for "<<mMatchesTPC.size()<<" TPC tracks"<<FairLogger::endl;
 
-  for (const auto & tpcMatch : mMatchesTPC) {
 
-    recID = tpcMatch.first;
-
-    auto& matchRecTPC = mMatchRecordsTPC[recID];
-    auto& itsMatch = mMatchesITS[matchRecTPC.matchID];
+  
+  for (int imtTPC=0;imtTPC<mMatchesTPC.size();imtTPC++) {    
+    //    auto& matchRecTPC = mMatchRecordsTPC[recID];
+    //    auto& itsMatch = mMatchesITS[matchRecTPC.matchID];
   }
 
 }
+/*
+bool MatchTPCITS::validateTPCMatch(int mtID)
+{
+  auto & tpcMatch = mMatchesTPC[mtID];
+  auto & rcTPC = mMatchRecordsTPC[tpcMatch.first]; // best TPC->ITS match
+  // check if it is consistent with corresponding ITS->TPC match
+  auto & itsMatch = mMatchesITS[rcTPC.matchID]; // matchITS of partner ITS track
+  return itsMatch.matchID == mtID; // is best matching TPC track for this ITS track actually mtID
   
+}
+*/
+
 //______________________________________________
 int MatchTPCITS::getNMatchRecordsTPC(const matchTPC& tpcMatch) const
 {
@@ -162,9 +172,7 @@ int MatchTPCITS::getNMatchRecordsITS(const matchITS& itsMatch) const
   while (recID!=DummyID) {
     auto& itsRecord = mMatchRecordsITS[recID];
     recID = itsRecord.nextRecID;
-    if (itsRecord.matchID!=DummyID) { // some match records might be disabled
-      count++;
-    }
+    count++;
   }
   return count;
 }
@@ -439,8 +447,8 @@ bool MatchTPCITS::loadITSData()
     if (!mITSTracksArrayInp->size()) {
       continue;
     }
-    return true;
     timingOn(TimingLoadData);
+    return true;
   }
   --mCurrITSTreeEntry;
   timingOn(TimingLoadData);
@@ -556,12 +564,19 @@ void MatchTPCITS::suppressMatchRecordITS(int matchITSID, int matchTPCID)
   ///< suppress the reference on the matchTPC with id=matchTPCID in
   ///< the list of matches recorded by for matchITS with id matchITSID
   auto& itsMatch = mMatchesITS[matchITSID];
-  int recordID = itsMatch.first;     // 1st entry in mMatchRecordsITS
+  int topID = DummyID, recordID = itsMatch.first;     // 1st entry in mMatchRecordsITS
   while(recordID!=DummyID) { // navigate over records for given ITS track
     if (mMatchRecordsITS[recordID].matchID == matchTPCID) {
-      mMatchRecordsITS[recordID].matchID = DummyID;
+      // unlink this record, connecting its child to its parrent
+      if (topID==DummyID) {
+	itsMatch.first = mMatchRecordsITS[recordID].nextRecID;
+      }
+      else {
+	mMatchRecordsITS[topID].nextRecID = mMatchRecordsITS[recordID].nextRecID;
+      }
       return;
     }
+    topID = recordID;
     recordID = mMatchRecordsITS[recordID].nextRecID; // check next record
   }
 }
@@ -608,14 +623,28 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
   // existing candidate. Otherwise, we need to add new entry
   if (count<mMaxMatchCandidates) {
     if (topID==DummyID) { // the new match is top candidate
-      mtcTPC.first = mMatchRecordsTPC.size(); // register new record as top one
+      topID = mtcTPC.first = mMatchRecordsTPC.size(); // register new record as top one
     }
     else { // there are better candidates
-      mMatchRecordsTPC[topID].nextRecID =  mMatchRecordsTPC.size(); // register to his parent
+      topID = mMatchRecordsTPC[topID].nextRecID =  mMatchRecordsTPC.size(); // register to his parent
     }
     // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
     registerMatchRecordITS(tITS,tTPC.matchID, chi2);  // register matchTPC entry in the ITS records
     mMatchRecordsTPC.emplace_back(tITS.matchID, chi2, nextID); // create new record with empty reference on next match
+    
+    // make sure that after addition the number of candidates don't exceed allowed number
+    count++;
+    while (nextID!=DummyID) {
+      if (count > mMaxMatchCandidates) {
+	suppressMatchRecordITS(mMatchRecordsTPC[nextID].matchID, tTPC.matchID);
+	// exclude nextID record, w/o changing topID (which becomes the last record)
+	nextID = mMatchRecordsTPC[topID].nextRecID = mMatchRecordsTPC[nextID].nextRecID;
+	continue;
+      }
+      count++;
+      topID = nextID;
+      nextID = mMatchRecordsTPC[nextID].nextRecID;
+    }
     return true; 
   }
   else {
@@ -766,12 +795,10 @@ void MatchTPCITS::printCandidatesITS() const
     int count=0, recID = itsMatch.first;
     do {
       const auto & rcITS = mMatchRecordsITS[recID];
-      if (rcITS.matchID != DummyID ) { // some ITS matches can be disabled
-	const auto & tpcMatch = mMatchesTPC[rcITS.matchID];
-	printf("  * cand %2d : TPC track %6d(%4d) Chi2: %.2f\n",
-	       count,tpcMatch.source.id,tpcMatch.source.chunk,rcITS.chi2);
-	count++;
-      }
+      const auto & tpcMatch = mMatchesTPC[rcITS.matchID];
+      printf("  * cand %2d : TPC track %6d(%4d) Chi2: %.2f\n",
+	     count,tpcMatch.source.id,tpcMatch.source.chunk,rcITS.chi2);
+      count++;
       recID=rcITS.nextRecID;
     }
     while ( recID != DummyID );
