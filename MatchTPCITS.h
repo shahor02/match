@@ -226,7 +226,8 @@ class MatchTPCITS {
 #ifdef _ALLOW_DEBUG_TREES_
   enum DebugFlagTypes : UInt_t {
     MatchTreeAll      = 0x1<<1,    ///< produce matching candidates tree for all candidates
-    MatchTreeAccOnly  = 0x1<<2     ///< fill the matching candidates tree only once the cut is passed
+    MatchTreeAccOnly  = 0x1<<2,    ///< fill the matching candidates tree only once the cut is passed
+    WinnerMatchesTree = 0x1<<3     ///< separate debug tree for winner matches
   };
   ///< check if partucular flags are set
   bool isDebugFlag(UInt_t flags) const { return mDBGFlags & flags; }
@@ -249,6 +250,7 @@ class MatchTPCITS {
   
   ///< fill matching debug tree
   void fillITSTPCmatchTree(int itsID,int tpcID, int rejFlag, float chi2=-1.);
+  void dumpWinnerMatches();
 #endif
   
  private:
@@ -261,6 +263,7 @@ class MatchTPCITS {
   void doMatching(int sec);
 
   void selectBestMatches();
+  void buildMatch2TrackTables();
   bool validateTPCMatch(int mtID);
   void removeITSfromTPC(int itsMatchID, int tpcMatchID);
   void removeTPCfromITS(int tpcMatchID, int itsMatchID);
@@ -407,6 +410,14 @@ class MatchTPCITS {
   std::vector<matchRecord> mMatchRecordsTPC; 
   ///< container for reference to matchRecord involving particular ITS track
   std::vector<matchRecord> mMatchRecordsITS; 
+
+  ///< track in mITSWork have pointer on matches in mMatchesITS, but not vice versa
+  ///< here we will keep index of ITS track in mITSWork for each match
+  std::vector<int> mITSMatch2Track; 
+
+  ///< track in mTPCWork have pointer on matches in mMatchesTPC, but not vice versa
+  ///< here we will keep index of TPC track in mTPCWork for each match
+  std::vector<int> mTPCMatch2Track; 
   
   std::vector<TrackLocTPC> mTPCWork; ///<TPC track params prepared for matching
   std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching

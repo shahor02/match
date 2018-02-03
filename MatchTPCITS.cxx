@@ -71,9 +71,14 @@ void MatchTPCITS::run()
   printCandidatesTPC();
   printCandidatesITS();
 
+  buildMatch2TrackTables();
+  
   selectBestMatches();
   
 #ifdef _ALLOW_DEBUG_TREES_
+  if ( mDBGOut && isDebugFlag(WinnerMatchesTree) ) {
+    dumpWinnerMatches();
+  }
   mDBGOut.reset();
 #endif
 }
@@ -851,6 +856,59 @@ void MatchTPCITS::printCandidatesITS() const
 }
 
 //______________________________________________
+void MatchTPCITS::buildMatch2TrackTables()
+{
+  ///< refer each match to corrsponding track
+  mITSMatch2Track.clear();
+  mITSMatch2Track.resize(mMatchesITS.size(),MinusOne);
+  for (int i=0;i<int(mITSWork.size());i++) {
+    const auto & its = mITSWork[i];
+    if (its.matchID>MinusOne) {
+      mITSMatch2Track[its.matchID] = i;
+    }
+  }
+
+  mTPCMatch2Track.clear();
+  mTPCMatch2Track.resize(mMatchesTPC.size(),MinusOne);
+  for (int i=0;i<int(mTPCWork.size());i++) {
+    const auto & tpc = mTPCWork[i];
+    if (tpc.matchID>MinusOne) {
+      mTPCMatch2Track[tpc.matchID] = i;
+    }
+  }
+}
+
+
+//______________________________________________
+void MatchTPCITS::dumpWinnerMatches()
+{
+  ///< write winner matches into debug tree
+  LOG(INFO)<<"Dumping debug tree for winner matches" <<FairLogger::endl;
+  for (int iits=0;iits<int(mITSWork.size());iits++) {
+    auto & its = mITSWork[iits];
+    if (its.matchID<0 || isDisabledITS(mMatchesITS[its.matchID]) ) {
+      continue;
+    }
+    auto & itsMatch = mMatchesITS[its.matchID];
+    auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
+    int itpc = mTPCMatch2Track[itsMatchRec.matchID];
+    auto & tpc = mTPCWork[itpc];
+
+    (*mDBGOut)<<"matchWin"<<"chi2Match="<< itsMatchRec.chi2<<"its="<<its<<"tpc="<<tpc;
+    
+    o2::MCCompLabel lblITS,lblTPC;
+    if (mMCTruthON) {
+      lblITS = mITSLblWork[iits];
+      lblTPC = mTPCLblWork[itpc];
+      (*mDBGOut)<<"matchWin"<<"itsLbl="<<lblITS<<"tpcLbl="<<lblTPC;
+    }
+    (*mDBGOut)<<"matchWin"<<"\n";
+  }
+
+}
+
+
+//______________________________________________
 float MatchTPCITS::getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const
 {
   /// get chi2 between 2 tracks, neglecting Z parameter.
@@ -979,6 +1037,9 @@ void MatchTPCITS::print() const
     printf("Debug stream flags:\n");
     if ( isDebugFlag(MatchTreeAll|MatchTreeAccOnly) ) {
       printf("* matching canditate pairs: %s\n", isDebugFlag(MatchTreeAccOnly) ? "accepted":"all");
+    }
+    if (isDebugFlag(WinnerMatchesTree)) {
+      printf("* winner matches\n");
     }
   }
 #endif
