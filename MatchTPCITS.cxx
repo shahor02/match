@@ -55,12 +55,10 @@ void MatchTPCITS::run()
 
   timingOn(TimingTotal);
   
-  while(prepareTPCData()) {
-    while(prepareITSData()) {
-      for (int  sec=o2::constants::math::NSectors;sec--;) {
-	doMatching(sec);
-      }
-    }
+  prepareTPCData();
+  prepareITSData();
+  for (int sec=o2::constants::math::NSectors;sec--;) {
+    doMatching(sec);
   }
 
   timingOff(TimingTotal);
@@ -362,81 +360,83 @@ bool MatchTPCITS::prepareTPCData()
 bool MatchTPCITS::prepareITSData()
 {
   // load next chunk of ITS data and prepare for matching
-  
-  if (!loadITSData()) {
-    return false;
-  }
-
-  int ntr = mITSTracksArrayInp->size();
-  
-  mMatchesITS.reserve(mMatchesITS.size() + ntr);
-  // number of records might be actually more than N tracks!
-  mMatchRecordsITS.reserve(mMatchRecordsITS.size() + mMaxMatchCandidates*ntr); 
-
+  mMatchesITS.clear();
   mITSWork.clear();
-  mITSWork.reserve(ntr*1.3); // tracks close to sector edge may require extra copies
+  // number of records might be actually more than N tracks!
+  mMatchRecordsITS.clear(); // RS TODO reserve(mMatchRecordsITS.size() + mMaxMatchCandidates*ntr); 
   if (mMCTruthON) {
     mITSLblWork.clear();
-    mITSLblWork.reserve(ntr*1.3);
+    // mITSLblWork.reserve(ntr*1.3); // RS TODO
   }
   for (int sec=o2::constants::math::NSectors;sec--;) {
     mITSSectIndexCache[sec].clear();
-    mITSSectIndexCache[sec].reserve(100+1.5*ntr/o2::constants::math::NSectors);
+    //  mITSSectIndexCache[sec].reserve(100+1.5*ntr/o2::constants::math::NSectors); // TODO
   }
 
-  for (int it=0;it<ntr;it++) {
-    auto& trcOrig = (*mITSTracksArrayInp)[it];
-
-    if (trcOrig.getParamOut().getX()<1.) {
-      continue; // backward refit failed
-    }
-    // working copy of outer track param
-    mITSWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig.getParamOut()),it,mCurrITSTreeEntry);
-    auto & trc = mITSWork.back();
-
-    // TODO: why I did this?
-    if ( !trc.track.rotate( o2::utils::Angle2Alpha(trc.track.getPhiPos()) ) ) {
-      mITSWork.pop_back(); // discard failed track
-      continue;
-    } 
-    // make sure the track is at the ref. radius
-    if (!propagateToRefX(trc.track)) {
-      mITSWork.pop_back(); // discard failed track
-      continue; // add to cache only those ITS tracks which reached ref.X and have reasonable snp
-    }
+  while (loadITSData()) {
+    int ntr = mITSTracksArrayInp->size();
+    /*
+    mITSWork.reserve(mITSWork.size() + ntr*1.3); // RS TODO
     if (mMCTruthON) {
-      mITSLblWork.emplace_back( mITSTrkLabels->getLabels(it)[0] );
+      mITSLblWork.reserve(mITSLblWork.size() + ntr*1.3); // RS TODO
     }
-
-    float tmn = itsROFrame2TPCTimeBin(trcOrig.getROFrame());
-    trc.timeBins.set(tmn,tmn+mITSROFrame2TPCBin);
-    trc.roFrame = trcOrig.getROFrame();
-
-    // cache work track index
-    int sector = o2::utils::Angle2Sector( trc.track.getAlpha() );
-    mITSSectIndexCache[sector].push_back( mITSWork.size()-1 );
-
-    // If the ITS track is very close to the sector edge, it may match also to a TPC track in the neighbouring sector.
-    // For a track with Yr and Phir at Xr the distance^2 between the poisition of this track in the neighbouring sector
-    // when propagated to Xr (in this neighbouring sector) and the edge will be (neglecting the curvature)
-    // [(Xr*tg(10)-Yr)/(tgPhir+tg70)]^2  / cos(70)^2  // for the next sector
-    // [(Xr*tg(10)+Yr)/(tgPhir-tg70)]^2  / cos(70)^2  // for the prev sector
-    // Distances to the sector edges in neighbourings sectors (at Xref in theit proper frames)
-    float tgp = trc.track.getSnp();
-    tgp /= std::sqrt((1.f-tgp)*(1.f+tgp)); // tan of track direction XY
-
-    // sector up
-    float dy2Up = (mYMaxAtXRef-trc.track.getY())/(tgp + Tan70);
-    if ( (dy2Up*dy2Up*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector up
-      addTrackCloneForNeighbourSector(trc, sector<(o2::constants::math::NSectors-1) ? sector+1 : 0);
+    for (int sec=o2::constants::math::NSectors;sec--;) {
+      mITSSectIndexCache[sec].reserve(mITSSectIndexCache[sec].size()+1.1*ntr/o2::constants::math::NSectors);
     }
-    // sector down
-    float dy2Dn = (mYMaxAtXRef+trc.track.getY())/(tgp - Tan70);
-    if ( (dy2Dn*dy2Dn*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector down
-      addTrackCloneForNeighbourSector(trc, sector>1 ? sector-1 : o2::constants::math::NSectors-1); 
+    */
+    for (int it=0;it<ntr;it++) {
+      auto& trcOrig = (*mITSTracksArrayInp)[it];
+
+      if (trcOrig.getParamOut().getX()<1.) {
+	continue; // backward refit failed
+      }
+      // working copy of outer track param
+      mITSWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig.getParamOut()),it,mCurrITSTreeEntry);
+      auto & trc = mITSWork.back();
+
+      // TODO: why I did this?
+      if ( !trc.track.rotate( o2::utils::Angle2Alpha(trc.track.getPhiPos()) ) ) {
+	mITSWork.pop_back(); // discard failed track
+	continue;
+      } 
+      // make sure the track is at the ref. radius
+      if (!propagateToRefX(trc.track)) {
+	mITSWork.pop_back(); // discard failed track
+	continue; // add to cache only those ITS tracks which reached ref.X and have reasonable snp
+      }
+      if (mMCTruthON) {
+	mITSLblWork.emplace_back( mITSTrkLabels->getLabels(it)[0] );
+      }
+
+      float tmn = itsROFrame2TPCTimeBin(trcOrig.getROFrame());
+      trc.timeBins.set(tmn,tmn+mITSROFrame2TPCBin);
+      trc.roFrame = trcOrig.getROFrame();
+
+      // cache work track index
+      int sector = o2::utils::Angle2Sector( trc.track.getAlpha() );
+      mITSSectIndexCache[sector].push_back( mITSWork.size()-1 );
+
+      // If the ITS track is very close to the sector edge, it may match also to a TPC track in the neighbouring sector.
+      // For a track with Yr and Phir at Xr the distance^2 between the poisition of this track in the neighbouring sector
+      // when propagated to Xr (in this neighbouring sector) and the edge will be (neglecting the curvature)
+      // [(Xr*tg(10)-Yr)/(tgPhir+tg70)]^2  / cos(70)^2  // for the next sector
+      // [(Xr*tg(10)+Yr)/(tgPhir-tg70)]^2  / cos(70)^2  // for the prev sector
+      // Distances to the sector edges in neighbourings sectors (at Xref in theit proper frames)
+      float tgp = trc.track.getSnp();
+      tgp /= std::sqrt((1.f-tgp)*(1.f+tgp)); // tan of track direction XY
+
+      // sector up
+      float dy2Up = (mYMaxAtXRef-trc.track.getY())/(tgp + Tan70);
+      if ( (dy2Up*dy2Up*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector up
+	addTrackCloneForNeighbourSector(trc, sector<(o2::constants::math::NSectors-1) ? sector+1 : 0);
+      }
+      // sector down
+      float dy2Dn = (mYMaxAtXRef+trc.track.getY())/(tgp - Tan70);
+      if ( (dy2Dn*dy2Dn*Cos70I2)<mSectEdgeMargin2) { // need to check this track for matching in sector down
+	addTrackCloneForNeighbourSector(trc, sector>1 ? sector-1 : o2::constants::math::NSectors-1); 
+      }
     }
   }
-  
   // sort tracks in each sector according to their time, then tgl
   for (int sec=o2::constants::math::NSectors; sec--;) {
     auto &indexCache = mITSSectIndexCache[sec];
@@ -473,10 +473,10 @@ bool MatchTPCITS::prepareITSData()
 	tbinStart[i] = tbinStart[i-1];
       }
     }
-
-    
   } // loop over tracks of single sector
-
+  mMatchesITS.reserve(mITSWork.size());
+  mMatchRecordsITS.reserve(mITSWork.size()*mMaxMatchCandidates);
+  
   return true;
 }
 
@@ -586,11 +586,13 @@ void MatchTPCITS::doMatching(int sec)
 	// ITS tracks in each ROFrame are ordered in Tgl, hence if this check failed on Tgl check
 	// (i.e. tgl_its>tgl_tpc+tolerance), tnem all other ITS tracks in this ROFrame will also have tgl too large.
 	// Jump on the 1st ITS track of the next ROFrame
-	int nextROF = trefITS.roFrame+1;
-	if ( nextROF >= int(tbinStartITS.size()) ) { // no more ITS ROFrames in cache
-	  break;
+	int rof = trefITS.roFrame;
+	do {
+	  rof++;
+	  if ( rof >= int(tbinStartITS.size()) ) return;  // no more ITS ROFrames in cache
+	  iits = tbinStartITS[rof]-1;  // next track to be checked -1
 	}
-	iits = tbinStartITS[nextROF]-1;  // next track to be checked -1
+	while (iits<=tbinStartITS[trefITS.roFrame]); // skip empty bins
 	continue;
       }
       if (rejFlag!=Accept) continue;
@@ -814,14 +816,14 @@ void MatchTPCITS::printCandidatesTPC() const
     printf("*** trackTPC# %6d(%4d) : Ncand = %d\n",
 	   tpcMatch.source.id, tpcMatch.source.chunk, getNMatchRecordsTPC(tpcMatch));
     int count=0, recID = tpcMatch.first;
-    do {
+    while (recID>MinusOne) {
       const auto & rcTPC = mMatchRecordsTPC[recID];
       const auto & itsMatch = mMatchesITS[rcTPC.matchID];
       printf("  * cand %2d : ITS track %6d(%4d) Chi2: %.2f\n",
 	     count,itsMatch.source.id,itsMatch.source.chunk,rcTPC.chi2);
       count++;
       recID=rcTPC.nextRecID;
-    } while (recID>MinusOne);    
+    }
   }
 
 }
@@ -836,7 +838,7 @@ void MatchTPCITS::printCandidatesITS() const
     printf("*** trackITS# %6d(%4d) : Ncand = %d\n",
 	   itsMatch.source.id, itsMatch.source.chunk, getNMatchRecordsITS(itsMatch));
     int count=0, recID = itsMatch.first;
-    do {
+    while ( recID>MinusOne ) {
       const auto & rcITS = mMatchRecordsITS[recID];
       const auto & tpcMatch = mMatchesTPC[rcITS.matchID];
       printf("  * cand %2d : TPC track %6d(%4d) Chi2: %.2f\n",
@@ -844,7 +846,6 @@ void MatchTPCITS::printCandidatesITS() const
       count++;
       recID=rcITS.nextRecID;
     }
-    while ( recID>MinusOne );
   }  
 
 }
