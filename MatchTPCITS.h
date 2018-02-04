@@ -52,11 +52,6 @@ namespace globaltracking
 
 constexpr int MinusOne = -1;
 constexpr int Validated = -2; 
-  
-enum TimerLevel : int
-{ // how often stop/start timer
-  TimingOff, TimingTotal, TimingLoadData, TimingFillDebugTree, TimingAll
-};
 
 ///< flags to tell the status of TPC-ITS tracks comparison
 enum TrackRejFlag : int {
@@ -175,12 +170,6 @@ class MatchTPCITS {
   void printCandidatesTPC() const;
   void printCandidatesITS() const;
 
-
-  ///< set timing level
-  void setTimingLevel(int v) { mTimingLevel = v; }
-  ///< get timing level
-  bool getTimingLevel() const { return mTimingLevel; }
-
   //>>> ====================== cuts ================================>>>
   
   ///< set cuts on absolute difference of ITS vs TPC track parameters
@@ -256,10 +245,10 @@ class MatchTPCITS {
  private:
   
   void attachInputChains();
-  bool prepareTPCData();
-  bool prepareITSData();
-  bool loadTPCData();
-  bool loadITSData();
+  bool prepareTPCTracks();
+  bool prepareITSTracks();
+  bool loadTPCTracks();
+  bool loadITSTracks();
   void doMatching(int sec);
 
   void selectBestMatches();
@@ -323,20 +312,6 @@ class MatchTPCITS {
   ///< rought check of 2 track params difference, return -1,0,1 if it is <,within or > than tolerance
   int roughCheckDif(float delta, float toler, int rejFlag) const {
     return delta>toler ? rejFlag : (delta<-toler ? -rejFlag : Accept);
-  }
-
-  ///< start timing if current level timing is allowed
-  void timingOn(TimerLevel lev) {
-    //    if (mTimingLevel >= lev) {
-      mTimer.Start(false);
-      //    }
-  }
-
-  ///< stop timing if current level timing is allowed
-  void timingOff(TimerLevel lev) {
-    //    if (mTimingLevel >= lev) {
-      mTimer.Stop();
-      //    }
   }
   
   //================================================================
@@ -454,8 +429,9 @@ class MatchTPCITS {
   static constexpr float MaxSnp = 0.85;
   static constexpr float MaxTgp = 1.61357f; // max tg corresponting to MaxSnp = MaxSnp/std::sqrt((1.-MaxSnp)*(1.+MaxSnp));
 
-  int mTimingLevel = TimingAll;
-  TStopwatch mTimer;
+  TStopwatch mTimerTot;
+  TStopwatch mTimerIO;
+  TStopwatch mTimerDBG;
   TStopwatch mTimerReg;
   
   ClassDefNV(MatchTPCITS,1);

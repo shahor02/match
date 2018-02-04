@@ -52,35 +52,40 @@ void MatchTPCITS::run()
   if (!mInitDone) {
     LOG(FATAL)<<"init() was not done yet"<<FairLogger::endl;
   }
-
-  timingOn(TimingTotal);
   
-  prepareTPCData();
-  prepareITSData();
+  mTimerTot.Start();
+  
+  prepareTPCTracks();
+  prepareITSTracks();
   for (int sec=o2::constants::math::NSectors;sec--;) {
     doMatching(sec);
   }
 
-  timingOff(TimingTotal);
-
-  if (mTimingLevel>=TimingTotal) {
-    printf("Total: "); mTimer.Print();
-    printf("Regis: "); mTimerReg.Print();
-  }
-
+  mTimerTot.Stop();
   printCandidatesTPC();
   printCandidatesITS();
-
+  mTimerTot.Start(false);
+  
   buildMatch2TrackTables();
   
   selectBestMatches();
-  
+
+  mTimerTot.Stop();
+
 #ifdef _ALLOW_DEBUG_TREES_
   if ( mDBGOut && isDebugFlag(WinnerMatchesTree) ) {
     dumpWinnerMatches();
   }
   mDBGOut.reset();
 #endif
+
+  printf("Timing:\n");
+  printf("Total:        "); mTimerTot.Print();
+  printf("Data IO:      "); mTimerIO.Print();
+  printf("Registration: "); mTimerReg.Print();
+  printf("DBG trees:    "); mTimerDBG.Print();
+
+  
 }
 
 //______________________________________________
@@ -127,6 +132,17 @@ void MatchTPCITS::init()
   
   mInitDone = true;
 
+  {
+    mTimerTot.Stop();
+    mTimerIO.Stop();
+    mTimerDBG.Stop();
+    mTimerReg.Stop();
+    mTimerTot.Reset();
+    mTimerIO.Reset();
+    mTimerDBG.Reset();
+    mTimerReg.Reset();
+  }
+  
   print();
   
 }
@@ -266,12 +282,12 @@ void MatchTPCITS::attachInputChains()
 }
 
 //______________________________________________
-bool MatchTPCITS::prepareTPCData()
+bool MatchTPCITS::prepareTPCTracks()
 {
   ///< load next chunk of TPC data and prepare for matching
   mMatchRecordsTPC.clear();
 
-  if (!loadTPCData()) {
+  if (!loadTPCTracks()) {
     return false;
   }
 
@@ -362,7 +378,7 @@ bool MatchTPCITS::prepareTPCData()
 }
 
 //_____________________________________________________
-bool MatchTPCITS::prepareITSData()
+bool MatchTPCITS::prepareITSTracks()
 {
   // load next chunk of ITS data and prepare for matching
   mMatchesITS.clear();
@@ -378,7 +394,7 @@ bool MatchTPCITS::prepareITSData()
     //  mITSSectIndexCache[sec].reserve(100+1.5*ntr/o2::constants::math::NSectors); // TODO
   }
 
-  while (loadITSData()) {
+  while (loadITSTracks()) {
     int ntr = mITSTracksArrayInp->size();
     /*
     mITSWork.reserve(mITSWork.size() + ntr*1.3); // RS TODO
@@ -486,10 +502,10 @@ bool MatchTPCITS::prepareITSData()
 }
 
 //_____________________________________________________
-bool MatchTPCITS::loadITSData()
+bool MatchTPCITS::loadITSTracks()
 {
   ///< load next chunk of ITS data
-  timingOff(TimingLoadData);
+  mTimerIO.Start(false);
   
   while(++mCurrITSTreeEntry < mChainITS->GetEntries()) {
     mChainITS->GetEntry(mCurrITSTreeEntry);
@@ -498,19 +514,19 @@ bool MatchTPCITS::loadITSData()
     if (!mITSTracksArrayInp->size()) {
       continue;
     }
-    timingOn(TimingLoadData);
+    mTimerIO.Stop();
     return true;
   }
   --mCurrITSTreeEntry;
-  timingOn(TimingLoadData);
+  mTimerIO.Stop();
   return false;
 }
 
 //_____________________________________________________
-bool MatchTPCITS::loadTPCData()
+bool MatchTPCITS::loadTPCTracks()
 {
   ///< load next chunk of TPC data
-  timingOff(TimingLoadData);
+  mTimerIO.Start(false);
   
   while(++mCurrTPCTreeEntry < mChainTPC->GetEntries()) {
     mChainTPC->GetEntry(mCurrTPCTreeEntry);
@@ -519,12 +535,12 @@ bool MatchTPCITS::loadTPCData()
     if (mTPCTracksArrayInp->size()<1) {
       continue;
     }
-    timingOn(TimingLoadData);
+    mTimerIO.Stop();
     return true;
   }
   --mCurrTPCTreeEntry;
 
-  timingOn(TimingLoadData);
+  mTimerIO.Stop();
   return false;
 }
 
@@ -883,6 +899,9 @@ void MatchTPCITS::buildMatch2TrackTables()
 void MatchTPCITS::dumpWinnerMatches()
 {
   ///< write winner matches into debug tree
+
+  mTimerDBG.Start(false);
+  
   LOG(INFO)<<"Dumping debug tree for winner matches" <<FairLogger::endl;
   for (int iits=0;iits<int(mITSWork.size());iits++) {
     auto & its = mITSWork[iits];
@@ -904,7 +923,7 @@ void MatchTPCITS::dumpWinnerMatches()
     }
     (*mDBGOut)<<"matchWin"<<"\n";
   }
-
+  mTimerDBG.Stop();
 }
 
 
@@ -1066,7 +1085,7 @@ void MatchTPCITS::fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float c
 {
   ///< fill debug tree for ITS TPC tracks matching check
 
-  timingOff(TimingFillDebugTree);
+  mTimerDBG.Start(false);
   
   auto &trackITS = mITSWork[ itsID ];
   auto &trackTPC = mTPCWork[ tpcID ];
@@ -1082,6 +1101,7 @@ void MatchTPCITS::fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float c
   }
   (*mDBGOut)<<"match"<<"rejFlag="<<rejFlag<<"\n";
 
-  timingOn(TimingFillDebugTree);
+  mTimerDBG.Stop();
+
 }
 #endif

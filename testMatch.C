@@ -41,7 +41,7 @@ void testMatch(std::string path = "./"
   // dump all checked pairs
   //  matching.setDebugFlag(o2::globaltracking::MatchTPCITS::MatchTreeAll);
   // dump winner matches
-  matching.setDebugFlag(o2::globaltracking::MatchTPCITS::WinnerMatchesTree);
+  // matching.setDebugFlag(o2::globaltracking::MatchTPCITS::WinnerMatchesTree);
 #endif
   
   //-------- init geometry and field --------//
