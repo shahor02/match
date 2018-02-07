@@ -95,6 +95,10 @@ struct TrackLocTPC {
   o2::track::TrackParCov track;
   trackOrigin source;  ///< track origin id
   timeBracket timeBins;      ///< bracketing time-bins
+  float time0=0.; //RS tmp
+  float lastZ=0; // RS tmp
+  int ncl = 0;//RS tmp
+  int side = 0; //RS tmp
   int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchTPC struct in the mMatchesTPC
   TrackLocTPC(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocTPC() = default;
@@ -320,7 +324,7 @@ class MatchTPCITS {
   
   int mCurrTPCTreeEntry=-1; ///< current TPC tree entry loaded to memory
   int mCurrITSTreeEntry=-1; ///< current ITS tree entry loaded to memory
-  float mXTPCInnerRef = 80.0; ///< reference radius at which TPC provides the tracks 
+  float mXTPCInnerRef = 83.0; ///< reference radius at which TPC provides the tracks 
   float mXRef = 70.0;         ///< reference radius to propage tracks for matching
   float mYMaxAtXRef = 0.;     ///< max Y in the sector at reference X
 
