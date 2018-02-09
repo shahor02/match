@@ -330,9 +330,20 @@ bool MatchTPCITS::prepareTPCTracks()
     float dtZCETPC = z2TPCBin( fabs(trcOrig.getLastClusterZ()) );
     // RS: consider more effective narrowing
     float time0 = trcOrig.getTimeVertex(mTPCBin2Z);
-    trc.timeBins.set(time0 - dtZCETPC - mTPCTimeEdgeTSafeMargin,time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin);
-    //trc.timeBins.set(time0 - trcOrig.getDeltaTBwd() - mTPCTimeEdgeTSafeMargin,
-    //		     time0 + trcOrig.getDeltaTFwd() + mTPCTimeEdgeTSafeMargin);
+    //trc.timeBins.set(time0 - dtZCETPC - mTPCTimeEdgeTSafeMargin,time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin);
+    trc.timeBins.set(time0 - trcOrig.getDeltaTBwd() - mTPCTimeEdgeTSafeMargin,
+    		     time0 + trcOrig.getDeltaTFwd() + mTPCTimeEdgeTSafeMargin);
+    // assign min max possible Z for this track which still respects the clusters A/C side
+    if (trcOrig.getSide()==o2::TPC::Side::A) {
+      trc.zMin = trc.track.getZ() - trcOrig.getDeltaTBwd()*mTPCBin2Z;
+      trc.zMax = trc.track.getZ() + trcOrig.getDeltaTFwd()*mTPCBin2Z;
+    }
+    else {
+      trc.zMin = trc.track.getZ() - trcOrig.getDeltaTFwd()*mTPCBin2Z;
+      trc.zMax = trc.track.getZ() + trcOrig.getDeltaTBwd()*mTPCBin2Z;
+    }
+    // TODO : special treatment of tracks crossing the CE
+    
     trc.time0 = time0; //RS tmp
     trc.lastZ = trcOrig.getLastClusterZ(); //RS tmp
     trc.firstZ = trcOrig.getFirstClusterZ(); //RS tmp
@@ -598,6 +609,9 @@ void MatchTPCITS::doMatching(int sec)
 	//all following ITS tracks also will not match
 	break;
       }
+      if (trefTPC.timeBins.tmin>trefITS.timeBins.tmax) { // its bracket is fully before TPC bracket
+	continue;
+      }
       nCheckITSControl++;
       float chi2 = -1;
       int rejFlag = compareITSTPCTracks(trefITS,trefTPC,chi2);
@@ -799,7 +813,7 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
   
   if (mCompareTracksDZ) { // in continuous mode we usually don't use DZ
     diff = trackITS.getParam(o2::track::kZ)-trackTPC.getParam(o2::track::kZ);
-    if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kZ],RejectOnZ)) ) {
+    if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kZ], RejectOnZ)) ) {
       return rejFlag;
     }
     diff *= diff/(trackITS.getDiagError2(o2::track::kZ)+trackTPC.getDiagError2(o2::track::kZ));
@@ -807,7 +821,11 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
       return rejFlag;
     }    
   }
-
+  else { // in continuous mode we use special check on allowed Z range
+    if ( trackITS.getParam(o2::track::kZ)-tTPC.zMax > mCrudeAbsDiffCut[o2::track::kZ]) return RejectOnZ;
+    if ( trackITS.getParam(o2::track::kZ)-tTPC.zMin < -mCrudeAbsDiffCut[o2::track::kZ]) return -RejectOnZ;
+  }
+  
   diff = trackITS.getParam(o2::track::kSnp)-trackTPC.getParam(o2::track::kSnp);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kSnp], RejectOnSnp)) ) {
     return rejFlag;

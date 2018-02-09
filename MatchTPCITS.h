@@ -98,6 +98,8 @@ struct TrackLocTPC {
   float time0=0.; //RS tmp
   float lastZ=0; // RS tmp
   float firstZ=0; // RS tmp
+  float zMin = 0; // min possible Z of this track
+  float zMax = 0; // max possible Z of this track
   short tFwd = 0;
   short tBwd = 0;
   int ncl = 0;//RS tmp
