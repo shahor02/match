@@ -174,9 +174,6 @@ void MatchTPCITS::selectBestMatches()
     //    int recID = tpcMatch.first;
     //    auto& matchRecTPC = mMatchRecordsTPC[recID];
     //    auto& itsMatch = mMatchesITS[matchRecTPC.matchID];
-    
-
-
 }
 
 //______________________________________________
@@ -334,9 +331,14 @@ bool MatchTPCITS::prepareTPCTracks()
     // RS: consider more effective narrowing
     float time0 = trcOrig.getTimeVertex(mTPCBin2Z);
     trc.timeBins.set(time0 - dtZCETPC - mTPCTimeEdgeTSafeMargin,time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin);
+    //trc.timeBins.set(time0 - trcOrig.getDeltaTBwd() - mTPCTimeEdgeTSafeMargin,
+    //		     time0 + trcOrig.getDeltaTFwd() + mTPCTimeEdgeTSafeMargin);
     trc.time0 = time0; //RS tmp
     trc.lastZ = trcOrig.getLastClusterZ(); //RS tmp
+    trc.firstZ = trcOrig.getFirstClusterZ(); //RS tmp
     trc.side = trcOrig.getSide(); //RS tmp
+    trc.tFwd = trcOrig.getDeltaTFwd(); //RS tmp
+    trc.tBwd = trcOrig.getDeltaTBwd(); //RS tmp
     trc.ncl = trcOrig.getNClusterReferences(); //RS tmp
     // cache work track index
     mTPCSectIndexCache[o2::utils::Angle2Sector( trc.track.getAlpha() )].push_back( mTPCWork.size()-1 ); 

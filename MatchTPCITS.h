@@ -97,12 +97,15 @@ struct TrackLocTPC {
   timeBracket timeBins;      ///< bracketing time-bins
   float time0=0.; //RS tmp
   float lastZ=0; // RS tmp
+  float firstZ=0; // RS tmp
+  short tFwd = 0;
+  short tBwd = 0;
   int ncl = 0;//RS tmp
   int side = 0; //RS tmp
   int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchTPC struct in the mMatchesTPC
   TrackLocTPC(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocTPC() = default;
-  ClassDefNV(TrackLocTPC,1);
+  ClassDefNV(TrackLocTPC,2); //RS TODO set to 1
 };
 
 ///< ITS track outward parameters propagated to reference X, with time bracket and index of
