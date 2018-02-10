@@ -185,8 +185,8 @@ bool MatchTPCITS::validateTPCMatch(int mtID)
   // check if it is consistent with corresponding ITS->TPC match
   auto & itsMatch = mMatchesITS[rcTPC.matchID]; // matchITS of partner ITS track
   auto & rcITS = mMatchRecordsITS[itsMatch.first]; // best ITS->TPC match
-  if (rcTPC.nextRecID == Validated) return false; //RS do we need this
-  if (rcITS.matchID == mtID) { // is best matching TPC track for this ITS track actually mtID
+  if (rcTPC.nextRecID == Validated) return false; //RS do we need this ?
+  if (rcITS.matchID == mtID) { // is best matching TPC track for this ITS track actually mtID?
 
     // unlink winner TPC track from all ITS candidates except winning one
     int nextTPC = rcTPC.nextRecID;
@@ -334,11 +334,11 @@ bool MatchTPCITS::prepareTPCTracks()
     trc.timeBins.set(time0 - trcOrig.getDeltaTBwd() - mTPCTimeEdgeTSafeMargin,
     		     time0 + trcOrig.getDeltaTFwd() + mTPCTimeEdgeTSafeMargin);
     // assign min max possible Z for this track which still respects the clusters A/C side
-    if (trcOrig.getSide()==o2::TPC::Side::A) {
+    if (trcOrig.hasASideClustersOnly()) {
       trc.zMin = trc.track.getZ() - trcOrig.getDeltaTBwd()*mTPCBin2Z;
       trc.zMax = trc.track.getZ() + trcOrig.getDeltaTFwd()*mTPCBin2Z;
     }
-    else {
+    else if (trcOrig.hasCSideClustersOnly()) {
       trc.zMin = trc.track.getZ() - trcOrig.getDeltaTFwd()*mTPCBin2Z;
       trc.zMax = trc.track.getZ() + trcOrig.getDeltaTBwd()*mTPCBin2Z;
     }
@@ -347,7 +347,7 @@ bool MatchTPCITS::prepareTPCTracks()
     trc.time0 = time0; //RS tmp
     trc.lastZ = trcOrig.getLastClusterZ(); //RS tmp
     trc.firstZ = trcOrig.getFirstClusterZ(); //RS tmp
-    trc.side = trcOrig.getSide(); //RS tmp
+    trc.side = trcOrig.hasCSideClustersOnly(); //RS tmp
     trc.tFwd = trcOrig.getDeltaTFwd(); //RS tmp
     trc.tBwd = trcOrig.getDeltaTBwd(); //RS tmp
     trc.ncl = trcOrig.getNClusterReferences(); //RS tmp
@@ -810,7 +810,7 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma2Cut[o2::track::kY], RejectOnY+NSigmaShift)) ) {
     return rejFlag;
   }
-  
+  /*
   if (mCompareTracksDZ) { // in continuous mode we usually don't use DZ
     diff = trackITS.getParam(o2::track::kZ)-trackTPC.getParam(o2::track::kZ);
     if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kZ], RejectOnZ)) ) {
@@ -825,7 +825,8 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
     if ( trackITS.getParam(o2::track::kZ)-tTPC.zMax > mCrudeAbsDiffCut[o2::track::kZ]) return RejectOnZ;
     if ( trackITS.getParam(o2::track::kZ)-tTPC.zMin < -mCrudeAbsDiffCut[o2::track::kZ]) return -RejectOnZ;
   }
-  
+  */  
+
   diff = trackITS.getParam(o2::track::kSnp)-trackTPC.getParam(o2::track::kSnp);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kSnp], RejectOnSnp)) ) {
     return rejFlag;
