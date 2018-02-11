@@ -106,9 +106,9 @@ void MatchTPCITS::init()
   mTPCVDrift0 = gasParam.getVdrift();
   mTPCZMax = detParam.getTPClength();
   
-  assert(mITSROFrame>0.f);
-
-  mITSROFrame2TPCBin = mITSROFrame/tpcTBin;
+  assert(mITSROFrameLengthUMS>0.f);
+  mITSROFramePhaseOffset = mITSROFrameOffsetUMS/mITSROFrameLengthUMS;
+  mITSROFrame2TPCBin = mITSROFrameLengthUMS/tpcTBin;
   mTPCBin2ITSROFrame = 1./mITSROFrame2TPCBin;
   mTPCBin2Z = tpcTBin*mTPCVDrift0;
   mZ2TPCBin = 1./mTPCBin2Z;
@@ -183,7 +183,7 @@ bool MatchTPCITS::validateTPCMatch(int mtID)
   auto & rcTPC = mMatchRecordsTPC[tpcMatch.first]; // best TPC->ITS match
   if (rcTPC.nextRecID == Validated) return false; //RS do we need this
   // check if it is consistent with corresponding ITS->TPC match
-  auto & itsMatch = mMatchesITS[rcTPC.matchID]; // matchITS of partner ITS track
+  auto & itsMatch = mMatchesITS[rcTPC.matchID]; // matchCand of partner ITS track
   auto & rcITS = mMatchRecordsITS[itsMatch.first]; // best ITS->TPC match
   if (rcTPC.nextRecID == Validated) return false; //RS do we need this ?
   if (rcITS.matchID == mtID) { // is best matching TPC track for this ITS track actually mtID?
@@ -213,9 +213,9 @@ bool MatchTPCITS::validateTPCMatch(int mtID)
 }
 
 //______________________________________________
-int MatchTPCITS::getNMatchRecordsTPC(const matchTPC& tpcMatch) const
+int MatchTPCITS::getNMatchRecordsTPC(const matchCand& tpcMatch) const
 {
-  ///< get number of matching records for TPC track referring to this matchTPC
+  ///< get number of matching records for TPC track referring to this matchCand
   int count = 0, recID = tpcMatch.first;
   while (recID>MinusOne) {
     recID = mMatchRecordsTPC[recID].nextRecID;
@@ -225,9 +225,9 @@ int MatchTPCITS::getNMatchRecordsTPC(const matchTPC& tpcMatch) const
 }
 
 //______________________________________________
-int MatchTPCITS::getNMatchRecordsITS(const matchITS& itsMatch) const
+int MatchTPCITS::getNMatchRecordsITS(const matchCand& itsMatch) const
 {
-  ///< get number of matching records for ITS track referring to this matchITS
+  ///< get number of matching records for ITS track referring to this matchCand
   int count = 0, recID = itsMatch.first;
   while (recID>MinusOne) {
     auto& itsRecord = mMatchRecordsITS[recID];
@@ -314,7 +314,8 @@ bool MatchTPCITS::prepareTPCTracks()
     // make sure the track was propagated to inner TPC radius at the ref. radius
     if (trcOrig.getX()>mXTPCInnerRef+0.1) continue; // failed propagation to inner TPC radius, cannot be matched
 
-    mTPCWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig),it,mCurrTPCTreeEntry); // working copy of track param
+    // create working copy of track param
+    mTPCWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig),it,mCurrTPCTreeEntry);
     auto & trc = mTPCWork.back();    
     // propagate to matching Xref
     if (!propagateToRefX(trc.track)) {
@@ -347,6 +348,8 @@ bool MatchTPCITS::prepareTPCTracks()
     trc.time0 = time0; //RS tmp
     trc.lastZ = trcOrig.getLastClusterZ(); //RS tmp
     trc.firstZ = trcOrig.getFirstClusterZ(); //RS tmp
+    trc.lastZ0 = trcOrig.getLastClusterZOrig(); //RS tmp
+    trc.firstZ0 = trcOrig.getFirstClusterZOrig(); //RS tmp
     trc.side = trcOrig.hasCSideClustersOnly(); //RS tmp
     trc.tFwd = trcOrig.getDeltaTFwd(); //RS tmp
     trc.tBwd = trcOrig.getDeltaTBwd(); //RS tmp
@@ -453,8 +456,8 @@ bool MatchTPCITS::prepareITSTracks()
       int sector = o2::utils::Angle2Sector( trc.track.getAlpha() );
       mITSSectIndexCache[sector].push_back( mITSWork.size()-1 );
 
-      // If the ITS track is very close to the sector edge, it may match also to a TPC track in the neighbouring sector.
-      // For a track with Yr and Phir at Xr the distance^2 between the poisition of this track in the neighbouring sector
+      // If the ITS track is very close to the sector edge, it may match also to a TPC track in the neighb. sector.
+      // For a track with Yr and Phir at Xr the distance^2 between the poisition of this track in the neighb. sector
       // when propagated to Xr (in this neighbouring sector) and the edge will be (neglecting the curvature)
       // [(Xr*tg(10)-Yr)/(tgPhir+tg70)]^2  / cos(70)^2  // for the next sector
       // [(Xr*tg(10)+Yr)/(tgPhir-tg70)]^2  / cos(70)^2  // for the prev sector
@@ -651,8 +654,8 @@ void MatchTPCITS::doMatching(int sec)
 //______________________________________________
 void MatchTPCITS::suppressMatchRecordITS(int matchITSID, int matchTPCID)
 {
-  ///< suppress the reference on the matchTPC with id=matchTPCID in
-  ///< the list of matches recorded by for matchITS with id matchITSID
+  ///< suppress the reference on the matchCand with id=matchTPCID in
+  ///< the list of matches recorded by for matchCand with id matchITSID
   auto& itsMatch = mMatchesITS[matchITSID];
   int topID = MinusOne, recordID = itsMatch.first;     // 1st entry in mMatchRecordsITS
   while(recordID>MinusOne) { // navigate over records for given ITS track
@@ -677,10 +680,10 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
   ///< record matching candidate, making sure that number of ITS candidates per TPC track, sorted
   ///< in matching chi2 does not exceed allowed number  
 
-  auto & mtcTPC = getTPCMatchEntry(tTPC); // get matchTPC structure of this TPC track, create if none
-  int nextID = mtcTPC.first;  // get 1st matchRecord this matchTPC refers to
+  auto & mtcTPC = getTPCMatchEntry(tTPC); // get matchCand structure of this TPC track, create if none
+  int nextID = mtcTPC.first;  // get 1st matchRecord this matchCand refers to
   if (nextID < 0) { // no matches yet, just add new record 
-    registerMatchRecordITS(tITS, tTPC.matchID, chi2); // register matchTPC entry in the ITS records
+    registerMatchRecordITS(tITS, tTPC.matchID, chi2); // register matchCand entry in the ITS records
     mtcTPC.first = mMatchRecordsTPC.size(); // new record will be added in the end
     mMatchRecordsTPC.emplace_back(tITS.matchID, chi2); // create new record with empty reference on next match
     return true;
@@ -697,7 +700,7 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
       else { // max number of candidates reached, will overwrite the last one
 	nextMatchRec.chi2 = chi2;
 	suppressMatchRecordITS(nextMatchRec.matchID, tTPC.matchID); // flag as disabled the overriden ITS match
-	registerMatchRecordITS(tITS,tTPC.matchID, chi2); // register matchTPC entry in the ITS records
+	registerMatchRecordITS(tITS,tTPC.matchID, chi2); // register matchCand entry in the ITS records
 	nextMatchRec.matchID = tITS.matchID; // reuse the record of suppressed ITS match to store better one
 	return true;
       }
@@ -717,9 +720,8 @@ bool MatchTPCITS::registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, f
       topID = mMatchRecordsTPC[topID].nextRecID =  mMatchRecordsTPC.size(); // register to his parent
     }
     // nextID==-1 will mean that the while loop run over all candidates->the new one is the worst (goes to the end)
-    registerMatchRecordITS(tITS,tTPC.matchID, chi2);  // register matchTPC entry in the ITS records
+    registerMatchRecordITS(tITS,tTPC.matchID, chi2);  // register matchCand entry in the ITS records
     mMatchRecordsTPC.emplace_back(tITS.matchID, chi2, nextID); // create new record with empty reference on next match
-    
     // make sure that after addition the number of candidates don't exceed allowed number
     count++;
     while (nextID>MinusOne) {
@@ -747,7 +749,7 @@ void MatchTPCITS::registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID, floa
   auto & itsMatch = getITSMatchEntry(tITS); // if needed, create new entry
   int nextRecord = itsMatch.first;  // entry of 1st match record in mMatchRecordsITS
   int idnew = mMatchRecordsITS.size();
-  mMatchRecordsITS.emplace_back(matchTPCID,chi2); // associate index of matchTPC with this record
+  mMatchRecordsITS.emplace_back(matchTPCID,chi2); // associate index of matchCand with this record
   if (nextRecord<0) { // this is the 1st match for this TPC track
     itsMatch.first = idnew;
     return;
@@ -761,7 +763,7 @@ void MatchTPCITS::registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID, floa
     if (chi2 < recITS.chi2) { // insert before this one
       newRecord.nextRecID = nextRecord; // new one will refer to old one it overtook
       if (topID<0) {
-	itsMatch.first = idnew; // the new one is the best match, the matchITS will refer to it 
+	itsMatch.first = idnew; // the new one is the best match, the matchCand will refer to it 
       }
       else {
 	mMatchRecordsITS[topID].nextRecID = idnew; // new record will follow existing better one
@@ -785,13 +787,7 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
   chi2 = -1.f;
   int rejFlag = Accept;
   float diff;   // make rough check differences and their nsigmas
-  
-  if (std::abs(trackTPC.getAlpha()-trackITS.getAlpha())>1e-5) {
-    LOG(ERROR)<<"alpha mistmatch"<<FairLogger::endl;
-    trackTPC.Print();
-    trackITS.Print();
-  }
-
+ 
   // start with check on Tgl, since rjection on it will allow to profit from sorting
   diff = trackITS.getParam(o2::track::kTgl)-trackTPC.getParam(o2::track::kTgl);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kTgl], RejectOnTgl)) ) {
@@ -810,7 +806,7 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
   if ( (rejFlag=roughCheckDif(diff,mCrudeNSigma2Cut[o2::track::kY], RejectOnY+NSigmaShift)) ) {
     return rejFlag;
   }
-  /*
+
   if (mCompareTracksDZ) { // in continuous mode we usually don't use DZ
     diff = trackITS.getParam(o2::track::kZ)-trackTPC.getParam(o2::track::kZ);
     if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kZ], RejectOnZ)) ) {
@@ -825,7 +821,6 @@ int MatchTPCITS::compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& 
     if ( trackITS.getParam(o2::track::kZ)-tTPC.zMax > mCrudeAbsDiffCut[o2::track::kZ]) return RejectOnZ;
     if ( trackITS.getParam(o2::track::kZ)-tTPC.zMin < -mCrudeAbsDiffCut[o2::track::kZ]) return -RejectOnZ;
   }
-  */  
 
   diff = trackITS.getParam(o2::track::kSnp)-trackTPC.getParam(o2::track::kSnp);
   if ( (rejFlag=roughCheckDif(diff,mCrudeAbsDiffCut[o2::track::kSnp], RejectOnSnp)) ) {
@@ -1008,7 +1003,8 @@ void MatchTPCITS::addTrackCloneForNeighbourSector(const TrackLocITS& src, int se
   auto &trc = mITSWork.back().track;
   if ( trc.rotate(o2::utils::Sector2Angle(sector)) &&
        o2::Base::Propagator::Instance()->PropagateToXBxByBz
-       (trc,mXRef,o2::constants::physics::MassPionCharged, 0.84999999999999998, 2., 0)) { //TODO: use faster prop here, no 3d field, materials
+       (trc,mXRef,o2::constants::physics::MassPionCharged, 0.84999999999999998, 2., 0)) {
+    //TODO: use faster prop here, no 3d field, materials
     mITSSectIndexCache[sector].push_back( mITSWork.size()-1 ); // register track CLONE
     if (mMCTruthON) {
       mITSLblWork.emplace_back( mITSTrkLabels->getLabels(src.source.id)[0] );

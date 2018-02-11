@@ -14,16 +14,19 @@
 #include "FairParRootFileIo.h"
 #include "FairLinkManager.h"
 
-#include "Field/MagneticField.h"
+#include "DataFormatsParameters/GRPObject.h"
 
 #include "TPCSimulation/DigitizerTask.h"
 #include "ITSSimulation/DigitizerTask.h"
 #endif
 
+int updateITSTPCinGRP(std::string inputGRP, std::string grpName="GRP");
+
 void run_digi(float rate = 100e3
 	      ,std::string outputfile="o2dig.root"
 	      ,std::string inputfile="o2sim.root"	     
 	      ,std::string paramfile="o2sim_par.root"
+	      ,std::string inputGRP="o2sim_grp.root"
 	      //
 	      // misc options
 	      ,bool useALPIDE = true	      
@@ -44,8 +47,12 @@ void run_digi(float rate = 100e3
   run->SetSource(fFileSource);
   run->SetOutputFile(outputfile.data());
 
-  if (rate>0) fFileSource->SetEventMeanTime(1.e9/rate); //is in us
-
+  if (rate>0) {
+    fFileSource->SetEventMeanTime(1.e9/rate); //is in us
+    // update GRP flagging continuously readout detectors
+    updateITSTPCinGRP(inputGRP);
+  }
+  
   // Needed for TPC
   run->SetUseFairLinks(kTRUE);
   // -- only store the link to the MC track
@@ -57,11 +64,6 @@ void run_digi(float rate = 100e3
   FairParRootFileIo* parInput1 = new FairParRootFileIo();
   parInput1->open(paramfile.data());
   rtdb->setFirstInput(parInput1);
-
-  // Setup mag. field
-  o2::field::MagneticField *magField = new o2::field::MagneticField("Maps","Maps", -1., -1.,
-								    o2::field::MagFieldParam::k5kG);
-  run->SetField(magField);
 
   //============================= create digitizers =============================>>>
 
@@ -108,4 +110,34 @@ void run_digi(float rate = 100e3
   std::cout << "Real time " << rtime << " s, CPU time " << ctime
 	    << "s" << std::endl << std::endl;
   
+}
+
+
+int updateITSTPCinGRP(std::string inputGRP, std::string grpName)
+{
+  TFile flGRP(inputGRP.data(),"update");
+  if (flGRP.IsZombie()) {
+    LOG(ERROR) << "Failed to open in update mode " << inputGRP << FairLogger::endl;
+    return -10;
+  }
+  auto grp = static_cast<o2::parameters::GRPObject*>
+    (flGRP.GetObjectChecked(grpName.data(), o2::parameters::GRPObject::Class()));
+  if (!grp) {
+    LOG(ERROR) << "Did not find GRP object named " << inputGRP << FairLogger::endl;
+    return -12;
+  }
+
+  vector<o2::detectors::DetID> contDet = {o2::detectors::DetID::ITS,o2::detectors::DetID::TPC};
+
+  for (auto det : contDet) {
+    if (grp->isDetReadOut(det)) {
+      grp->addDetContinuousReadOut(det);
+    }
+  }
+
+  LOG(INFO)<<"Updated GRP in "<<inputGRP<<" flagging continously read-out detectors"<<FairLogger::endl;
+  grp->print();
+  flGRP.WriteObjectAny(grp, grp->Class(), grpName.data());
+  flGRP.Close();
+  return 0;
 }

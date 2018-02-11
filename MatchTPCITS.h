@@ -98,6 +98,8 @@ struct TrackLocTPC {
   float time0=0.; //RS tmp
   float lastZ=0; // RS tmp
   float firstZ=0; // RS tmp
+  float lastZ0=0; // RS tmp
+  float firstZ0=0; // RS tmp
   float zMin = 0; // min possible Z of this track
   float zMax = 0; // max possible Z of this track
   short tFwd = 0;
@@ -117,41 +119,31 @@ struct TrackLocITS {
   trackOrigin source;        ///< track origin id
   timeBracket timeBins;      ///< bracketing time-bins
   int roFrame = MinusOne;     ///< ITS readout frame assigned to this track
-  int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchITS struct in the mMatchesITS
+  int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchCand struct in the mMatchesITS
   TrackLocITS(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
   TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
 };
 
-/// RS: at the moment matchTPC and matchITS are similar, but may diverge in future
- 
-///< each TPC track having at least 1 matching ITS candidate records in matchTPC the
-///< the ID of the 1st (best) matchRecord in the mMatchRecordsTPC container
-struct matchTPC {
+///< each TPC or ITS track having at least 1 matching ITS or TPC candidate records
+///< in the matchCandidate the ID of the 1st (best) matchRecord in the mMatchRecordsITS
+///< ot mMatchRecordsTPC container
+struct matchCand {
   trackOrigin source;        ///< track origin id
   int first = MinusOne;  ///< 1st match for this track in the mMatchRecordsTPC
-  matchTPC(const trackOrigin& src) : source(src) {}
-  matchTPC() = default;
-};
-
-///< each ITS track having at least 1 matching TPC candidate records in matchITS the TODO
-///< the ID of its 1st matchLink in the mMatchLinksITS container
-struct matchITS {
-  trackOrigin source;        ///< track origin id
-  int first = MinusOne;  ///< 1st match for this track in the mMatchRecordsITS
-  matchITS(const trackOrigin& src) : source(src) {}
-  matchITS() = default;
+  matchCand(const trackOrigin& src) : source(src) {}
+  matchCand() = default;
 };
  
 ///< record TPC or ITS track associated with single ITS or TPC track and reference on
 ///< the next (worse chi2) matchRecord of the same TPC or ITS track 
 struct matchRecord {
   float chi2 = -1.f;             ///< matching chi2
-  int matchID = MinusOne;         ///< id of parnter matchITS or matchTPC struct in mMatchesITS/TPC container
+  int matchID = MinusOne;         ///< id of parnter matchCand struct in mMatchesITS/TPC container
   int nextRecID = MinusOne;       ///< index of eventual next record
 
-  matchRecord(int itsMID, float chi2match) : matchID(itsMID), chi2(chi2match) {}
-  matchRecord(int itsMID, float chi2match, int nxt) : matchID(itsMID), chi2(chi2match), nextRecID(nxt) {}
+  matchRecord(int mtcID, float chi2match) : matchID(mtcID), chi2(chi2match) {}
+  matchRecord(int mtcID, float chi2match, int nxt) : matchID(mtcID), chi2(chi2match), nextRecID(nxt) {}
   matchRecord() = default;
 };
  
@@ -166,8 +158,11 @@ class MatchTPCITS {
   void init();
 
   ///< set ITS ROFrame duration in microseconds
-  void setITSROFrame(float fums) { mITSROFrame = fums; }
+  void setITSROFrameLengthUMS(float fums) { mITSROFrameLengthUMS = fums; }
 
+  ///< set ITS 0-th ROFrame time start in \mus
+  void setITSROFrameOffsetUMS(float v)  { mITSROFrameOffsetUMS = v; }
+  
   ///< set chain containing ITS tracks 
   void setInputChainITS(TChain* chain) { mChainITS = chain;}
 
@@ -265,10 +260,10 @@ class MatchTPCITS {
   bool validateTPCMatch(int mtID);
   void removeITSfromTPC(int itsMatchID, int tpcMatchID);
   void removeTPCfromITS(int tpcMatchID, int itsMatchID);
-  bool isValidatedTPC(const matchTPC& m);
-  bool isValidatedITS(const matchITS& m);
-  bool isDisabledTPC(const matchTPC& m);
-  bool isDisabledITS(const matchITS& m);
+  bool isValidatedTPC(const matchCand& m);
+  bool isValidatedITS(const matchCand& m);
+  bool isDisabledTPC(const matchCand& m);
+  bool isDisabledITS(const matchCand& m);
   
   int compareITSTPCTracks(const TrackLocITS& tITS,const TrackLocTPC& tTPC, float& chi2) const;
   float getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const;
@@ -279,33 +274,33 @@ class MatchTPCITS {
   bool registerMatchRecordTPC(TrackLocITS& tITS, TrackLocTPC& tTPC, float chi2);
   void registerMatchRecordITS(TrackLocITS& tITS, int matchTPCID, float chi2);
   void suppressMatchRecordITS(int matchITSID, int matchTPCID);
-  matchTPC& getTPCMatchEntry(TrackLocTPC& tTPC);
-  matchITS& getITSMatchEntry(TrackLocITS& tITS);
+  matchCand& getTPCMatchEntry(TrackLocTPC& tTPC);
+  matchCand& getITSMatchEntry(TrackLocITS& tITS);
 
-  ///< get number of matching records for TPC track referring to this matchTPC
-  int getNMatchRecordsTPC(const matchTPC& tpcMatch) const;
+  ///< get number of matching records for TPC track referring to this matchCand
+  int getNMatchRecordsTPC(const matchCand& tpcMatch) const;
   
-  ///< get number of matching records for ITS track referring to this matchITS
-  int getNMatchRecordsITS(const matchITS& itsMatch) const;
+  ///< get number of matching records for ITS track referring to this matchCand
+  int getNMatchRecordsITS(const matchCand& itsMatch) const;
   
   ///< get number of matching records for TPC track referring to matchTPS struct with matchTPCID
   int getNMatchRecordsTPC(int matchTPCID) const {
     return matchTPCID<0 ? 0 : getNMatchRecordsTPC(mMatchesTPC[matchTPCID]);
   }
-  ///< get number of matching records for ITS track referring to matchITS struct with matchITSID
+  ///< get number of matching records for ITS track referring to matchCand struct with matchITSID
   int getNMatchRecordsITS(int matchITSID) const {    
     return matchITSID<0 ? 0 : getNMatchRecordsITS(mMatchesITS[matchITSID]);
   }     
   
   ///< convert TPC time bin to ITS ROFrame units
   int tpcTimeBin2ITSROFrame(float tbin) const {
-    int rof = tbin*mTPCBin2ITSROFrame;
+    int rof = tbin*mTPCBin2ITSROFrame - mITSROFramePhaseOffset;
     return rof<0 ? 0 : rof;
   }
 
   ///< convert ITS ROFrame to TPC time bin units
   float itsROFrame2TPCTimeBin(int rof) const {
-    return rof*mITSROFrame2TPCBin;
+    return (rof + mITSROFramePhaseOffset)*mITSROFrame2TPCBin;
   }
 
   ///< convert Z interval to TPC time-bins
@@ -335,6 +330,8 @@ class MatchTPCITS {
 
   bool mMCTruthON = false;   ///< flag availability of MC truth
 
+  ///========== Parameters to be set externally, e.g. from CCDB ====================
+  
   ///< do we use track Z difference to reject fake matches? makes sense for triggered mode only
   bool mCompareTracksDZ = false;
   
@@ -361,10 +358,12 @@ class MatchTPCITS {
   ///< safety margin in TPC time bins when estimating TPC track tMin and tMax from
   ///< assigned time0 and its track Z position (converted from mTPCTimeEdgeZSafeMargin)
   float mTPCTimeEdgeTSafeMargin = 0.f;
-
   float mTimeBinTolerance = 10.f; ///<tolerance in time-bin for ITS-TPC time bracket matching
 
-  float mITSROFrame = -1.; ///< ITS RO frame in \mus
+  float mITSROFrameLengthUMS = -1.; ///< ITS RO frame in \mus
+  float mITSROFrameOffsetUMS = 0;   ///< time in \mus corresponding to start of 1st ITS ROFrame,
+                                    ///< i.e. t = ROFrameID*mITSROFrameLengthUMS - mITSROFrameOffsetUMS
+  float mITSROFramePhaseOffset = 0; ///< mITSROFrameOffsetUMS recalculated in mITSROFrameLengthUMS units
   float mTPCVDrift0 = -1.; ///< TPC nominal drift speed in cm/microseconds
   float mITSROFrame2TPCBin = 0.; ///< conversion coeff from ITS ROFrame units to TPC time-bin
   float mTPCBin2ITSROFrame = 0.; ///< conversion coeff from TPC time-bin to ITS ROFrame units
@@ -385,10 +384,10 @@ class MatchTPCITS {
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< input TPC Track MC labels
   /// <<<-----
 
-  ///< container for matchTPC structures (1 per TPCtrack with some matches to ITS)
-  std::vector<matchTPC> mMatchesTPC;
-  ///< container for matchITS structures (1 per ITStrack with some matches to TPC)
-  std::vector<matchITS> mMatchesITS; 
+  ///< container for matchCand structures of TPC tracks (1 per TPCtrack with some matches to ITS)
+  std::vector<matchCand> mMatchesTPC;
+  ///< container for matchCand structures of ITS tracks(1 per ITStrack with some matches to TPC)
+  std::vector<matchCand> mMatchesITS; 
 
   ///< container for record the match of TPC track to single ITS track
   std::vector<matchRecord> mMatchRecordsTPC; 
@@ -435,8 +434,8 @@ class MatchTPCITS {
   static constexpr float TolerSortTgl = 1e-4; ///<tolerance for comparison of 2 tracks tgl
   static constexpr float Tan70 = 2.74747771e+00; // tg(70 degree): std::tan(70.*o2::constants::math::PI/180.);
   static constexpr float Cos70I2 = 1.+Tan70*Tan70; // 1/cos^2(70) = 1 + tan^2(70)
-  static constexpr float MaxSnp = 0.85;
-  static constexpr float MaxTgp = 1.61357f; // max tg corresponting to MaxSnp = MaxSnp/std::sqrt((1.-MaxSnp)*(1.+MaxSnp));
+  static constexpr float MaxSnp = 0.85; // max snp of ITS or TPC track at xRef to be matched
+  static constexpr float MaxTgp = 1.61357f; // max tg corresponting to MaxSnp = MaxSnp/std::sqrt(1.-MaxSnp^2)
 
   TStopwatch mTimerTot;
   TStopwatch mTimerIO;
@@ -449,11 +448,11 @@ class MatchTPCITS {
  
 
 //______________________________________________
-inline matchTPC& MatchTPCITS::getTPCMatchEntry(TrackLocTPC& tTPC)
+inline matchCand& MatchTPCITS::getTPCMatchEntry(TrackLocTPC& tTPC)
 {
-  ///< return the matchTPC entry referred by the tTPC track,
+  ///< return the matchCand entry referred by the tTPC track,
   ///< create if neaded
-  if (tTPC.matchID == MinusOne) { // does this TPC track already have any match? If not, create matchTPC entry 
+  if (tTPC.matchID == MinusOne) { // does this TPC track already have any match? If not, create matchCand entry 
     tTPC.matchID = mMatchesTPC.size();
     mMatchesTPC.emplace_back(tTPC.source);
     return mMatchesTPC.back();
@@ -462,11 +461,11 @@ inline matchTPC& MatchTPCITS::getTPCMatchEntry(TrackLocTPC& tTPC)
 }
 
 //______________________________________________
-inline matchITS& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
+inline matchCand& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
 {
-  ///< return the matchITS entry referred by the tITS track,
+  ///< return the matchCand entry referred by the tITS track,
   ///< create if neaded
-  if (tITS.matchID == MinusOne) { // does this ITS track already have any match? If not, create matchITS entry 
+  if (tITS.matchID == MinusOne) { // does this ITS track already have any match? If not, create matchCand entry 
     tITS.matchID = mMatchesITS.size();
     mMatchesITS.emplace_back(tITS.source);
     return mMatchesITS.back();
@@ -475,25 +474,25 @@ inline matchITS& MatchTPCITS::getITSMatchEntry(TrackLocITS& tITS)
 }
 
 //______________________________________________
-inline bool MatchTPCITS::isValidatedTPC(const matchTPC& m)
+inline bool MatchTPCITS::isValidatedTPC(const matchCand& m)
 {
   return m.first>MinusOne && mMatchRecordsTPC[m.first].nextRecID == Validated;
 }
 
 //______________________________________________
-inline bool MatchTPCITS::isValidatedITS(const matchITS& m)
+inline bool MatchTPCITS::isValidatedITS(const matchCand& m)
 {
   return m.first>MinusOne && mMatchRecordsITS[m.first].nextRecID == Validated;
 }
 
 //______________________________________________
-inline bool MatchTPCITS::isDisabledITS(const matchITS& m)
+inline bool MatchTPCITS::isDisabledITS(const matchCand& m)
 {
   return m.first<0;
 }
 
 //______________________________________________
-inline bool MatchTPCITS::isDisabledTPC(const matchTPC& m)
+inline bool MatchTPCITS::isDisabledTPC(const matchCand& m)
 {
   return m.first<0;
 }

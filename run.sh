@@ -4,7 +4,7 @@ rate=50.e3
 
 #o2sim -n $nEvents -m PIPE ITS TPC >& sim.log
 o2sim -n $nEvents -m PIPE ITS TPC FRAME >& sim.log
-root -b -q run_digi.C\($rate\) >& dig.log
+root -b -q run_digi.C+\($rate\) >& dig.log
 root -b -q run_clus.C >& clus.log
 root -b -q run_trac_its.C\($rate\) >& rec_its.log
 
