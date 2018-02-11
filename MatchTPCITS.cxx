@@ -83,6 +83,7 @@ void MatchTPCITS::run()
   printf("Total:        "); mTimerTot.Print();
   printf("Data IO:      "); mTimerIO.Print();
   printf("Registration: "); mTimerReg.Print();
+  printf("Refits      : "); mTimerRefit.Print();
   printf("DBG trees:    "); mTimerDBG.Print();
 
   
@@ -106,9 +107,9 @@ void MatchTPCITS::init()
   mTPCVDrift0 = gasParam.getVdrift();
   mTPCZMax = detParam.getTPClength();
   
-  assert(mITSROFrameLengthUMS>0.f);
-  mITSROFramePhaseOffset = mITSROFrameOffsetUMS/mITSROFrameLengthUMS;
-  mITSROFrame2TPCBin = mITSROFrameLengthUMS/tpcTBin;
+  assert(mITSROFrameLengthMUS>0.f);
+  mITSROFramePhaseOffset = mITSROFrameOffsetMUS/mITSROFrameLengthMUS;
+  mITSROFrame2TPCBin = mITSROFrameLengthMUS/tpcTBin;
   mTPCBin2ITSROFrame = 1./mITSROFrame2TPCBin;
   mTPCBin2Z = tpcTBin*mTPCVDrift0;
   mZ2TPCBin = 1./mTPCBin2Z;
@@ -171,9 +172,6 @@ void MatchTPCITS::selectBestMatches()
     iter++;
   } while(nValidated);
   
-    //    int recID = tpcMatch.first;
-    //    auto& matchRecTPC = mMatchRecordsTPC[recID];
-    //    auto& itsMatch = mMatchesITS[matchRecTPC.matchID];
 }
 
 //______________________________________________
@@ -913,39 +911,6 @@ void MatchTPCITS::buildMatch2TrackTables()
   }
 }
 
-
-//______________________________________________
-void MatchTPCITS::dumpWinnerMatches()
-{
-  ///< write winner matches into debug tree
-
-  mTimerDBG.Start(false);
-  
-  LOG(INFO)<<"Dumping debug tree for winner matches" <<FairLogger::endl;
-  for (int iits=0;iits<int(mITSWork.size());iits++) {
-    auto & its = mITSWork[iits];
-    if (its.matchID<0 || isDisabledITS(mMatchesITS[its.matchID]) ) {
-      continue;
-    }
-    auto & itsMatch = mMatchesITS[its.matchID];
-    auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
-    int itpc = mTPCMatch2Track[itsMatchRec.matchID];
-    auto & tpc = mTPCWork[itpc];
-
-    (*mDBGOut)<<"matchWin"<<"chi2Match="<< itsMatchRec.chi2<<"its="<<its<<"tpc="<<tpc;
-    
-    o2::MCCompLabel lblITS,lblTPC;
-    if (mMCTruthON) {
-      lblITS = mITSLblWork[iits];
-      lblTPC = mTPCLblWork[itpc];
-      (*mDBGOut)<<"matchWin"<<"itsLbl="<<lblITS<<"tpcLbl="<<lblTPC;
-    }
-    (*mDBGOut)<<"matchWin"<<"\n";
-  }
-  mTimerDBG.Stop();
-}
-
-
 //______________________________________________
 float MatchTPCITS::getPredictedChi2NoZ(const o2::track::TrackParCov& tr1, const o2::track::TrackParCov& tr2) const
 {
@@ -1087,6 +1052,36 @@ void MatchTPCITS::print() const
   printf("**********************************************************************\n");
 }
 
+//______________________________________________
+void MatchTPCITS::refitWinners()
+{
+  ///< refit winning tracks
+
+  mTimerRefit.Start(false);
+  
+  LOG(INFO)<<"Refitting winner matches" <<FairLogger::endl;
+  for (int iits=0;iits<int(mITSWork.size());iits++) {
+    auto & its = mITSWork[iits];
+    if (its.matchID<0 || isDisabledITS(mMatchesITS[its.matchID]) ) {
+      continue;
+    }
+    auto & itsMatch = mMatchesITS[its.matchID];
+    auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
+    int itpc = mTPCMatch2Track[itsMatchRec.matchID];
+    auto & tpc = mTPCWork[itpc];
+    refitTrackITSTPC(its,tpc);
+  }
+  mTimerRefit.Stop();
+}
+
+//______________________________________________
+bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC)
+{
+  //
+  return true;
+}
+
+
 #ifdef _ALLOW_DEBUG_TREES_
 //______________________________________________
 void MatchTPCITS::setDebugFlag(UInt_t flag, bool on)
@@ -1124,4 +1119,36 @@ void MatchTPCITS::fillITSTPCmatchTree(int itsID, int tpcID, int rejFlag, float c
   mTimerDBG.Stop();
 
 }
+
+//______________________________________________
+void MatchTPCITS::dumpWinnerMatches()
+{
+  ///< write winner matches into debug tree
+
+  mTimerDBG.Start(false);
+  
+  LOG(INFO)<<"Dumping debug tree for winner matches" <<FairLogger::endl;
+  for (int iits=0;iits<int(mITSWork.size());iits++) {
+    auto & its = mITSWork[iits];
+    if (its.matchID<0 || isDisabledITS(mMatchesITS[its.matchID]) ) {
+      continue;
+    }
+    auto & itsMatch = mMatchesITS[its.matchID];
+    auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
+    int itpc = mTPCMatch2Track[itsMatchRec.matchID];
+    auto & tpc = mTPCWork[itpc];
+
+    (*mDBGOut)<<"matchWin"<<"chi2Match="<< itsMatchRec.chi2<<"its="<<its<<"tpc="<<tpc;
+    
+    o2::MCCompLabel lblITS,lblTPC;
+    if (mMCTruthON) {
+      lblITS = mITSLblWork[iits];
+      lblTPC = mTPCLblWork[itpc];
+      (*mDBGOut)<<"matchWin"<<"itsLbl="<<lblITS<<"tpcLbl="<<lblTPC;
+    }
+    (*mDBGOut)<<"matchWin"<<"\n";
+  }
+  mTimerDBG.Stop();
+}
+
 #endif

@@ -158,10 +158,10 @@ class MatchTPCITS {
   void init();
 
   ///< set ITS ROFrame duration in microseconds
-  void setITSROFrameLengthUMS(float fums) { mITSROFrameLengthUMS = fums; }
+  void setITSROFrameLengthMUS(float fums) { mITSROFrameLengthMUS = fums; }
 
   ///< set ITS 0-th ROFrame time start in \mus
-  void setITSROFrameOffsetUMS(float v)  { mITSROFrameOffsetUMS = v; }
+  void setITSROFrameOffsetMUS(float v)  { mITSROFrameOffsetMUS = v; }
   
   ///< set chain containing ITS tracks 
   void setInputChainITS(TChain* chain) { mChainITS = chain;}
@@ -255,6 +255,8 @@ class MatchTPCITS {
   bool loadITSTracks();
   void doMatching(int sec);
 
+  void refitWinners();
+  bool refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC);
   void selectBestMatches();
   void buildMatch2TrackTables();
   bool validateTPCMatch(int mtID);
@@ -360,10 +362,10 @@ class MatchTPCITS {
   float mTPCTimeEdgeTSafeMargin = 0.f;
   float mTimeBinTolerance = 10.f; ///<tolerance in time-bin for ITS-TPC time bracket matching
 
-  float mITSROFrameLengthUMS = -1.; ///< ITS RO frame in \mus
-  float mITSROFrameOffsetUMS = 0;   ///< time in \mus corresponding to start of 1st ITS ROFrame,
-                                    ///< i.e. t = ROFrameID*mITSROFrameLengthUMS - mITSROFrameOffsetUMS
-  float mITSROFramePhaseOffset = 0; ///< mITSROFrameOffsetUMS recalculated in mITSROFrameLengthUMS units
+  float mITSROFrameLengthMUS = -1.; ///< ITS RO frame in \mus
+  float mITSROFrameOffsetMUS = 0;   ///< time in \mus corresponding to start of 1st ITS ROFrame,
+                                    ///< i.e. t = ROFrameID*mITSROFrameLengthMUS - mITSROFrameOffsetMUS
+  float mITSROFramePhaseOffset = 0; ///< mITSROFrameOffsetMUS recalculated in mITSROFrameLengthMUS units
   float mTPCVDrift0 = -1.; ///< TPC nominal drift speed in cm/microseconds
   float mITSROFrame2TPCBin = 0.; ///< conversion coeff from ITS ROFrame units to TPC time-bin
   float mTPCBin2ITSROFrame = 0.; ///< conversion coeff from TPC time-bin to ITS ROFrame units
@@ -441,6 +443,7 @@ class MatchTPCITS {
   TStopwatch mTimerIO;
   TStopwatch mTimerDBG;
   TStopwatch mTimerReg;
+  TStopwatch mTimerRefit;
   
   ClassDefNV(MatchTPCITS,1);
 };

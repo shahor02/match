@@ -1,4 +1,4 @@
-nEvents=300
+nEvents=100
 #To activate the continuos readout, assign a positive value to the rate 
 rate=50.e3
 

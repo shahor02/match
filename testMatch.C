@@ -14,7 +14,6 @@
 #endif
 
 void testMatch(std::string path = "./"
-	       ,float itsOffset = 0.
 	       ,std::string outputfile="o2match_itstpc.root"
 	       ,std::string inputTracksITS="o2track_its.root"
 	       ,std::string inputTracksTPC="tracksFromNative.root"
@@ -50,8 +49,7 @@ void testMatch(std::string path = "./"
   o2::Base::Propagator::initFieldFromGRP(path+inputGRP);
   
   //-------------------- settings -----------//
-  matching.setITSROFrameLengthUMS(10.0f);      // ITS ROFrame duration in \mus
-  matching.setITSROFrameOffsetUMS(itsOffset);// ITS 0th ROFrame start in \mus
+  matching.setITSROFrameLengthMUS(5.0f);      // ITS ROFrame duration in \mus
   matching.setCutMatchingChi2(100.);
   std::array<float,o2::track::kNParams> cutsAbs = {2.f, 2.f, 0.2f, 0.2f, 4.f};
   std::array<float,o2::track::kNParams> cutsNSig2 = {49.f,49.f,49.f,49.f,49.f};

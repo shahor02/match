@@ -69,7 +69,8 @@ void run_digi(float rate = 100e3
 
   o2::ITS::DigitizerTask *digiITS = new o2::ITS::DigitizerTask(useALPIDE);
   digiITS->setContinuous(rate>0);
-  digiITS->setFairTimeUnitInNS(1.0); // tell in which units (wrt nanosecond) FAIT timestamps are
+  digiITS->setFairTimeUnitInNS(1.0); // tell in which units (wrt nanosecond) FAIR timestamps are
+  digiITS->setAlpideROFramLength(5000.); // ALPIDE RO frame in ns
   run->AddTask(digiITS);
 
   o2::TPC::DigitizerTask *digiTPC = new o2::TPC::DigitizerTask;
