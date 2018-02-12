@@ -17,6 +17,7 @@ void testMatch(std::string path = "./"
 	       ,std::string outputfile="o2match_itstpc.root"
 	       ,std::string inputTracksITS="o2track_its.root"
 	       ,std::string inputTracksTPC="tracksFromNative.root"
+	       ,std::string inputClustersITS="o2clus.root"
 	       ,std::string inputGeom="O2geometry.root"
 	       ,std::string inputGRP="o2sim_grp.root")
 {
@@ -26,14 +27,22 @@ void testMatch(std::string path = "./"
   if (path.back()!='/') {
     path += '/';
   }
+
+  //>>>---------- attach input data --------------->>>
+  TChain itsTracks("o2sim");
+  itsTracks.AddFile((path+inputTracksITS).data());
+  matching.setInputChainITSTracks(&itsTracks);
+
+  TChain tpcTracks("events");
+  tpcTracks.AddFile((path+inputTracksTPC).data());
+  matching.setInputChainTPCTracks(&tpcTracks);
+
+  TChain itsClusters("o2sim");
+  itsClusters.AddFile((path+inputClustersITS).data());
+  matching.setInputChainITSClusters(&itsClusters);
+
+  //<<<---------- attach input data ---------------<<<
   
-  TChain its("o2sim"),tpc("events");
-  its.AddFile((path+inputTracksITS).data());
-  tpc.AddFile((path+inputTracksTPC).data());
-
-  matching.setInputChainITS(&its);
-  matching.setInputChainTPC(&tpc);
-
 #ifdef _ALLOW_DEBUG_TREES_
   matching.setDebugTreeFileName(path+matching.getDebugTreeFileName());
   // dump accepted pairs only

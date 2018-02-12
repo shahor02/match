@@ -16,6 +16,8 @@
 #include "Field/MagFieldFast.h"
 #include "ITSReconstruction/CookedTrack.h"
 #include "TPCReconstruction/TrackTPC.h"
+#include "ITSMFTReconstruction/Cluster.h"
+
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 
@@ -238,35 +240,48 @@ int MatchTPCITS::getNMatchRecordsITS(const matchCand& itsMatch) const
 //______________________________________________
 void MatchTPCITS::attachInputChains()
 {
-  if (!mChainITS) {
-    LOG(FATAL) <<"ITS data input chain is not set"<<FairLogger::endl;
+  if (!mChainITSTracks) {
+    LOG(FATAL) <<"ITS tracks data input chain is not set"<<FairLogger::endl;
   }
-  if (!mChainTPC) {
-    LOG(FATAL) <<"TPC data input chain is not set"<<FairLogger::endl;
+  
+  if (!mChainTPCTracks) {
+    LOG(FATAL) <<"TPC tracks data input chain is not set"<<FairLogger::endl;
   }
 
-  if (!mChainITS->GetBranch(mITSTrackBranchName.data())) {
+  if (!mChainITSClusters) {
+    LOG(FATAL) <<"ITS clusters data input chain is not set"<<FairLogger::endl;
+  }
+
+  if (!mChainITSTracks->GetBranch(mITSTrackBranchName.data())) {
     LOG(FATAL) <<"Did not find ITS tracks branch "<<mITSTrackBranchName<<" in the input chain"<<FairLogger::endl;
   }
-  mChainITS->SetBranchAddress(mITSTrackBranchName.data(),&mITSTracksArrayInp);
+  mChainITSTracks->SetBranchAddress(mITSTrackBranchName.data(),&mITSTracksArrayInp);
   LOG(INFO)<<"Attached ITS tracks "<<mITSTrackBranchName<<" branch with "
-	   <<mChainITS->GetEntries()<<" entries"<<FairLogger::endl;
+	   <<mChainITSTracks->GetEntries()<<" entries"<<FairLogger::endl;
 
-  if (!mChainTPC->GetBranch(mTPCTrackBranchName.data())) {
+  if (!mChainTPCTracks->GetBranch(mTPCTrackBranchName.data())) {
     LOG(FATAL) <<"Did not find TPC tracks branch "<<mTPCTrackBranchName<<" in the input chain"<<FairLogger::endl;
   }
-  mChainTPC->SetBranchAddress(mTPCTrackBranchName.data(),&mTPCTracksArrayInp);
+  mChainTPCTracks->SetBranchAddress(mTPCTrackBranchName.data(),&mTPCTracksArrayInp);
   LOG(INFO)<<"Attached TPC tracks "<<mTPCTrackBranchName<<" branch with "
-	   <<mChainTPC->GetEntries()<<" entries"<<FairLogger::endl;
+	   <<mChainTPCTracks->GetEntries()<<" entries"<<FairLogger::endl;
+
+
+  if (!mChainITSClusters->GetBranch(mITSClusterBranchName.data())) {
+    LOG(FATAL) <<"Did not find ITS clusters branch "<<mITSClusterBranchName<<" in the input chain"<<FairLogger::endl;
+  }
+  mChainITSClusters->SetBranchAddress(mITSClusterBranchName.data(),&mITSClusArrayInp);
+  LOG(INFO)<<"Attached ITS clusters "<<mITSClusterBranchName<<" branch with "
+	   <<mChainITSClusters->GetEntries()<<" entries"<<FairLogger::endl;
   
   // is there MC info available ?
-  if (mChainITS->GetBranch(mITSMCTruthBranchName.data())) {
-    mChainITS->SetBranchAddress(mITSMCTruthBranchName.data(),&mITSTrkLabels);
+  if (mChainITSTracks->GetBranch(mITSMCTruthBranchName.data())) {
+    mChainITSTracks->SetBranchAddress(mITSMCTruthBranchName.data(),&mITSTrkLabels);
     LOG(INFO)<<"Found ITS Track MCLabels branch "<<mITSMCTruthBranchName<<FairLogger::endl;
   }
   // is there MC info available ?
-  if (mChainTPC->GetBranch(mTPCMCTruthBranchName.data())) {
-    mChainTPC->SetBranchAddress(mTPCMCTruthBranchName.data(),&mTPCTrkLabels);
+  if (mChainTPCTracks->GetBranch(mTPCMCTruthBranchName.data())) {
+    mChainTPCTracks->SetBranchAddress(mTPCMCTruthBranchName.data(),&mTPCTrkLabels);
     LOG(INFO)<<"Found TPC Track MCLabels branch "<<mTPCMCTruthBranchName<<FairLogger::endl;
   }
 
@@ -524,8 +539,8 @@ bool MatchTPCITS::loadITSTracks()
   ///< load next chunk of ITS data
   mTimerIO.Start(false);
   
-  while(++mCurrITSTreeEntry < mChainITS->GetEntries()) {
-    mChainITS->GetEntry(mCurrITSTreeEntry);
+  while(++mCurrITSTreeEntry < mChainITSTracks->GetEntries()) {
+    mChainITSTracks->GetEntry(mCurrITSTreeEntry);
     LOG(INFO)<<"Starting ITS entry "<<mCurrITSTreeEntry<<" -> "
 	     <<mITSTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (!mITSTracksArrayInp->size()) {
@@ -545,8 +560,8 @@ bool MatchTPCITS::loadTPCTracks()
   ///< load next chunk of TPC data
   mTimerIO.Start(false);
   
-  while(++mCurrTPCTreeEntry < mChainTPC->GetEntries()) {
-    mChainTPC->GetEntry(mCurrTPCTreeEntry);
+  while(++mCurrTPCTreeEntry < mChainTPCTracks->GetEntries()) {
+    mChainTPCTracks->GetEntry(mCurrTPCTreeEntry);
     LOG(INFO)<<"Starting TPC entry "<<mCurrTPCTreeEntry<<" -> "
 	     <<mTPCTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (mTPCTracksArrayInp->size()<1) {

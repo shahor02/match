@@ -42,6 +42,12 @@ namespace ITS
 class CookedTrack;
 }
 
+namespace ITSMFT
+{
+class Cluster;
+}
+
+ 
 namespace TPC
 {
 class TrackTPC;
@@ -164,10 +170,13 @@ class MatchTPCITS {
   void setITSROFrameOffsetMUS(float v)  { mITSROFrameOffsetMUS = v; }
   
   ///< set chain containing ITS tracks 
-  void setInputChainITS(TChain* chain) { mChainITS = chain;}
+  void setInputChainITSTracks(TChain* chain) { mChainITSTracks = chain;}
 
   ///< set chain containing TPC tracks 
-  void setInputChainTPC(TChain* chain) { mChainTPC = chain;}
+  void setInputChainTPCTracks(TChain* chain) { mChainTPCTracks = chain;}
+
+  ///< set chain containing ITS clusters
+  void setInputChainITSClusters(TChain* chain) { mChainITSClusters = chain;}
 
   ///< print settings
   void print() const;
@@ -374,14 +383,17 @@ class MatchTPCITS {
   float mNTPCBinsFullDrift = 0.; ///< max time bin for full drift
   float mTPCZMax = 0.;
 
-  TChain *mChainITS=nullptr; ///< input chain for ITS tracks
-  TChain *mChainTPC=nullptr; ///< input chain for TPC tracks
+  TChain *mChainITSTracks = nullptr; ///< input chain for ITS tracks
+  TChain *mChainTPCTracks = nullptr; ///< input chain for TPC tracks
+  TChain *mChainITSClusters = nullptr; ///< input chain for ITS clusters
  
   ///>>>------ these are input arrays which should not be modified by the matching code
   //           since this info is provided by external device
-  std::vector<o2::ITS::CookedTrack> *mITSTracksArrayInp = nullptr;             ///<input tracks
-  std::vector<o2::TPC::TrackTPC> *mTPCTracksArrayInp = nullptr;                ///<input tracks
+  std::vector<o2::ITS::CookedTrack> *mITSTracksArrayInp = nullptr;             ///< input ITS tracks
+  std::vector<o2::TPC::TrackTPC> *mTPCTracksArrayInp = nullptr;                ///< input TPC tracks
 
+  std::vector<o2::ITSMFT::Cluster> *mITSClusArrayInp = nullptr;                ///< input ITS clusters
+  
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mITSTrkLabels = nullptr; ///< input ITS Track MC labels
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< input TPC Track MC labels
   /// <<<-----
@@ -421,6 +433,7 @@ class MatchTPCITS {
 
   std::string mITSTrackBranchName = "ITSTrack"; ///< name of branch containing input ITS tracks
   std::string mTPCTrackBranchName = "Tracks";    ///< name of branch containing input TPC tracks
+  std::string mITSClusterBranchName = "ITSCluster";    ///< name of branch containing input ITS clusters
   std::string mITSMCTruthBranchName = "ITSTrackMCTruth"; ///< name of branch containing ITS MC labels
   std::string mTPCMCTruthBranchName = "TracksMCTruth"; ///< name of branch containing input TPC tracks
   
