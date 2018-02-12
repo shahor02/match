@@ -147,10 +147,13 @@ void MatchTPCITS::init()
     mTimerIO.Stop();
     mTimerDBG.Stop();
     mTimerReg.Stop();
+    mTimerRefit.Stop();
     mTimerTot.Reset();
     mTimerIO.Reset();
     mTimerDBG.Reset();
     mTimerReg.Reset();
+    mTimerRefit.Reset();
+    
   }
   
   print();
@@ -1101,7 +1104,13 @@ void MatchTPCITS::refitWinners()
     const auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
     int itpc = mTPCMatch2Track[itsMatchRec.matchID];
     auto & tpc = mTPCWork[itpc];
-    refitTrackITSTPC(its,tpc);
+    if (!refitTrackITSTPC(its,tpc)) {
+      auto& lblITS = mITSLblWork[iits];
+      auto& lblTPC = mTPCLblWork[itpc];
+      printf("Failed MCtruth: its: %3d/%6d tpc: %3d/%6d\n",
+	     lblITS.getEventID(),lblITS.getTrackID(),
+	     lblTPC.getEventID(),lblTPC.getTrackID());
+    }
   }
   mTimerRefit.Stop();
 }
@@ -1139,8 +1148,10 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
     nclRefit++;
   }
   if (nclRefit != ncl) {
-    printf("FAILED\n");
-    trfit.Print();
+    printf("FAILED after ncl=%d\n",nclRefit);
+    printf("seed: "); trfit.Print();
+    printf("its:  "); tITS.track.Print();
+    printf("tpc:  "); tTPC.track.Print();
     return false; 
   }
   
