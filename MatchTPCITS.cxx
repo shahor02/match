@@ -17,6 +17,7 @@
 #include "ITSReconstruction/CookedTrack.h"
 #include "TPCReconstruction/TrackTPC.h"
 #include "ITSMFTReconstruction/Cluster.h"
+#include "ITSBase/GeometryTGeo.h"
 
 #include "SimulationDataFormat/MCTruthContainer.h"
 #include "SimulationDataFormat/MCCompLabel.h"
@@ -72,8 +73,6 @@ void MatchTPCITS::run()
   
   selectBestMatches();
 
-  mTimerTot.Stop();
-
 #ifdef _ALLOW_DEBUG_TREES_
   if ( mDBGOut && isDebugFlag(WinnerMatchesTree) ) {
     dumpWinnerMatches();
@@ -81,6 +80,10 @@ void MatchTPCITS::run()
   mDBGOut.reset();
 #endif
 
+  refitWinners();
+  
+  mTimerTot.Stop();
+  
   printf("Timing:\n");
   printf("Total:        "); mTimerTot.Print();
   printf("Data IO:      "); mTimerIO.Print();
@@ -99,6 +102,10 @@ void MatchTPCITS::init()
     LOG(ERROR)<<"Initialization was already done"<<FairLogger::endl;
     return;
   }
+
+  // make sure T2GRot matrices are loaded into ITS geometry helper
+  o2::ITS::GeometryTGeo::Instance()->fillMatrixCache(o2::utils::bit2Mask(o2::TransformType::T2GRot)); 
+
   mYMaxAtXRef = mXRef*std::tan(o2::constants::math::SectorSpanRad*0.5); ///< max Y in the sector at reference X
   mSectEdgeMargin2 = mCrudeAbsDiffCut[o2::track::kY]*mCrudeAbsDiffCut[o2::track::kY]; ///< precalculated ^2
 
@@ -270,7 +277,7 @@ void MatchTPCITS::attachInputChains()
   if (!mChainITSClusters->GetBranch(mITSClusterBranchName.data())) {
     LOG(FATAL) <<"Did not find ITS clusters branch "<<mITSClusterBranchName<<" in the input chain"<<FairLogger::endl;
   }
-  mChainITSClusters->SetBranchAddress(mITSClusterBranchName.data(),&mITSClusArrayInp);
+  mChainITSClusters->SetBranchAddress(mITSClusterBranchName.data(),&mITSClustersArrayInp);
   LOG(INFO)<<"Attached ITS clusters "<<mITSClusterBranchName<<" branch with "
 	   <<mChainITSClusters->GetEntries()<<" entries"<<FairLogger::endl;
   
@@ -286,8 +293,8 @@ void MatchTPCITS::attachInputChains()
   }
 
   mMCTruthON = (mITSTrkLabels && mTPCTrkLabels);  
-  mCurrTPCTreeEntry = -1;
-  mCurrITSTreeEntry = -1;
+  mCurrTPCTracksTreeEntry = -1;
+  mCurrITSTracksTreeEntry = -1;
 
 }
 
@@ -297,7 +304,7 @@ bool MatchTPCITS::prepareTPCTracks()
   ///< load next chunk of TPC data and prepare for matching
   mMatchRecordsTPC.clear();
 
-  if (!loadTPCTracks()) {
+  if (!loadTPCTracksNextChunk()) {
     return false;
   }
 
@@ -328,7 +335,7 @@ bool MatchTPCITS::prepareTPCTracks()
     if (trcOrig.getX()>mXTPCInnerRef+0.1) continue; // failed propagation to inner TPC radius, cannot be matched
 
     // create working copy of track param
-    mTPCWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig),it,mCurrTPCTreeEntry);
+    mTPCWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig),mCurrTPCTracksTreeEntry,it);
     auto & trc = mTPCWork.back();    
     // propagate to matching Xref
     if (!propagateToRefX(trc.track)) {
@@ -419,24 +426,13 @@ bool MatchTPCITS::prepareITSTracks()
   mMatchRecordsITS.clear(); // RS TODO reserve(mMatchRecordsITS.size() + mMaxMatchCandidates*ntr); 
   if (mMCTruthON) {
     mITSLblWork.clear();
-    // mITSLblWork.reserve(ntr*1.3); // RS TODO
   }
   for (int sec=o2::constants::math::NSectors;sec--;) {
     mITSSectIndexCache[sec].clear();
-    //  mITSSectIndexCache[sec].reserve(100+1.5*ntr/o2::constants::math::NSectors); // TODO
   }
 
-  while (loadITSTracks()) {
+  while (loadITSTracksNextChunk()) {
     int ntr = mITSTracksArrayInp->size();
-    /*
-    mITSWork.reserve(mITSWork.size() + ntr*1.3); // RS TODO
-    if (mMCTruthON) {
-      mITSLblWork.reserve(mITSLblWork.size() + ntr*1.3); // RS TODO
-    }
-    for (int sec=o2::constants::math::NSectors;sec--;) {
-      mITSSectIndexCache[sec].reserve(mITSSectIndexCache[sec].size()+1.1*ntr/o2::constants::math::NSectors);
-    }
-    */
     for (int it=0;it<ntr;it++) {
       auto& trcOrig = (*mITSTracksArrayInp)[it];
 
@@ -444,7 +440,7 @@ bool MatchTPCITS::prepareITSTracks()
 	continue; // backward refit failed
       }
       // working copy of outer track param
-      mITSWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig.getParamOut()),it,mCurrITSTreeEntry);
+      mITSWork.emplace_back(static_cast<o2::track::TrackParCov&>(trcOrig.getParamOut()),mCurrITSTracksTreeEntry,it);
       auto & trc = mITSWork.back();
 
       // TODO: why I did this?
@@ -534,14 +530,14 @@ bool MatchTPCITS::prepareITSTracks()
 }
 
 //_____________________________________________________
-bool MatchTPCITS::loadITSTracks()
+bool MatchTPCITS::loadITSTracksNextChunk()
 {
   ///< load next chunk of ITS data
   mTimerIO.Start(false);
   
-  while(++mCurrITSTreeEntry < mChainITSTracks->GetEntries()) {
-    mChainITSTracks->GetEntry(mCurrITSTreeEntry);
-    LOG(INFO)<<"Starting ITS entry "<<mCurrITSTreeEntry<<" -> "
+  while(++mCurrITSTracksTreeEntry < mChainITSTracks->GetEntries()) {
+    mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry);
+    LOG(INFO)<<"Loading ITS tracks entry "<<mCurrITSTracksTreeEntry<<" -> "
 	     <<mITSTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (!mITSTracksArrayInp->size()) {
       continue;
@@ -549,20 +545,39 @@ bool MatchTPCITS::loadITSTracks()
     mTimerIO.Stop();
     return true;
   }
-  --mCurrITSTreeEntry;
+  --mCurrITSTracksTreeEntry;
   mTimerIO.Stop();
   return false;
 }
 
 //_____________________________________________________
-bool MatchTPCITS::loadTPCTracks()
+bool MatchTPCITS::loadITSClustersChunk(int chunk)
+{
+  ///< load next chunk of ITS clusters data
+  if (mCurrITSTracksTreeEntry==chunk && mCurrITSClustersTreeEntry==chunk) {
+    return true;
+  }
+  mTimerIO.Start(false);
+  mCurrITSTracksTreeEntry = mCurrITSClustersTreeEntry = chunk;
+  mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry);
+  mChainITSClusters->GetEntry(mCurrITSClustersTreeEntry);
+
+  LOG(INFO)<<"Loading ITS clusters entry "<<chunk<<" -> "
+	     <<mITSClustersArrayInp->size()<<" clusters"<<FairLogger::endl;
+  mTimerIO.Stop();
+  return true;
+
+}
+
+//_____________________________________________________
+bool MatchTPCITS::loadTPCTracksNextChunk()
 {
   ///< load next chunk of TPC data
   mTimerIO.Start(false);
   
-  while(++mCurrTPCTreeEntry < mChainTPCTracks->GetEntries()) {
-    mChainTPCTracks->GetEntry(mCurrTPCTreeEntry);
-    LOG(INFO)<<"Starting TPC entry "<<mCurrTPCTreeEntry<<" -> "
+  while(++mCurrTPCTracksTreeEntry < mChainTPCTracks->GetEntries()) {
+    mChainTPCTracks->GetEntry(mCurrTPCTracksTreeEntry);
+    LOG(INFO)<<"Loading TPC tracks entry "<<mCurrTPCTracksTreeEntry<<" -> "
 	     <<mTPCTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (mTPCTracksArrayInp->size()<1) {
       continue;
@@ -570,7 +585,7 @@ bool MatchTPCITS::loadTPCTracks()
     mTimerIO.Stop();
     return true;
   }
-  --mCurrTPCTreeEntry;
+  --mCurrTPCTracksTreeEntry;
 
   mTimerIO.Stop();
   return false;
@@ -867,13 +882,13 @@ void MatchTPCITS::printCandidatesTPC() const
   printf("\n\nPrinting all %zu TPC -> ITS matches\n", mMatchesTPC.size());
   for (const auto & tpcMatch : mMatchesTPC) {
     printf("*** trackTPC# %6d(%4d) : Ncand = %d\n",
-	   tpcMatch.source.id, tpcMatch.source.chunk, getNMatchRecordsTPC(tpcMatch));
+	   tpcMatch.source.getIndex(), tpcMatch.source.getEvent(), getNMatchRecordsTPC(tpcMatch));
     int count=0, recID = tpcMatch.first;
     while (recID>MinusOne) {
       const auto & rcTPC = mMatchRecordsTPC[recID];
       const auto & itsMatch = mMatchesITS[rcTPC.matchID];
       printf("  * cand %2d : ITS track %6d(%4d) Chi2: %.2f\n",
-	     count,itsMatch.source.id,itsMatch.source.chunk,rcTPC.chi2);
+	     count,itsMatch.source.getIndex(),itsMatch.source.getEvent(),rcTPC.chi2);
       count++;
       recID=rcTPC.nextRecID;
     }
@@ -889,13 +904,13 @@ void MatchTPCITS::printCandidatesITS() const
   printf("\n\nPrinting all %zu ITS -> TPC matches\n",mMatchesITS.size());
   for (const auto & itsMatch : mMatchesITS ) {
     printf("*** trackITS# %6d(%4d) : Ncand = %d\n",
-	   itsMatch.source.id, itsMatch.source.chunk, getNMatchRecordsITS(itsMatch));
+	   itsMatch.source.getIndex(), itsMatch.source.getEvent(), getNMatchRecordsITS(itsMatch));
     int count=0, recID = itsMatch.first;
     while ( recID>MinusOne ) {
       const auto & rcITS = mMatchRecordsITS[recID];
       const auto & tpcMatch = mMatchesTPC[rcITS.matchID];
       printf("  * cand %2d : TPC track %6d(%4d) Chi2: %.2f\n",
-	     count,tpcMatch.source.id,tpcMatch.source.chunk,rcITS.chi2);
+	     count,tpcMatch.source.getIndex(),tpcMatch.source.getEvent(),rcITS.chi2);
       count++;
       recID=rcITS.nextRecID;
     }
@@ -983,11 +998,11 @@ void MatchTPCITS::addTrackCloneForNeighbourSector(const TrackLocITS& src, int se
   auto &trc = mITSWork.back().track;
   if ( trc.rotate(o2::utils::Sector2Angle(sector)) &&
        o2::Base::Propagator::Instance()->PropagateToXBxByBz
-       (trc,mXRef,o2::constants::physics::MassPionCharged, 0.84999999999999998, 2., 0)) {
+       (trc,mXRef,o2::constants::physics::MassPionCharged, MaxSnp, 2., 0)) {
     //TODO: use faster prop here, no 3d field, materials
     mITSSectIndexCache[sector].push_back( mITSWork.size()-1 ); // register track CLONE
     if (mMCTruthON) {
-      mITSLblWork.emplace_back( mITSTrkLabels->getLabels(src.source.id)[0] );
+      mITSLblWork.emplace_back( mITSTrkLabels->getLabels(src.source.getIndex())[0] );
     }
   }
   else {
@@ -1003,7 +1018,7 @@ bool MatchTPCITS::propagateToRefX(o2::track::TrackParCov &trc)
   bool refReached = false;
   refReached = mXRef<10.; // RS: tmp, to cover mXRef~0
   while ( o2::Base::Propagator::Instance()->PropagateToXBxByBz
-	  (trc,mXRef,o2::constants::physics::MassPionCharged, 0.84999999999999998, 2., 1) ) {
+	  (trc,mXRef,o2::constants::physics::MassPionCharged, MaxSnp, 2., 1) ) {
     if (refReached) break; // RS: tmp
     // make sure the track is indeed within the sector defined by alpha
     if ( fabs(trc.getY()) < mXRef*tan(o2::constants::math::SectorSpanRad/2) ) {
@@ -1075,13 +1090,15 @@ void MatchTPCITS::refitWinners()
   mTimerRefit.Start(false);
   
   LOG(INFO)<<"Refitting winner matches" <<FairLogger::endl;
+  mCurrITSTracksTreeEntry = -1;
+  mCurrITSClustersTreeEntry = -1;
   for (int iits=0;iits<int(mITSWork.size());iits++) {
     auto & its = mITSWork[iits];
     if (its.matchID<0 || isDisabledITS(mMatchesITS[its.matchID]) ) {
       continue;
     }
-    auto & itsMatch = mMatchesITS[its.matchID];
-    auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
+    const auto & itsMatch = mMatchesITS[its.matchID];
+    const auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
     int itpc = mTPCMatch2Track[itsMatchRec.matchID];
     auto & tpc = mTPCWork[itpc];
     refitTrackITSTPC(its,tpc);
@@ -1092,7 +1109,41 @@ void MatchTPCITS::refitWinners()
 //______________________________________________
 bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC)
 {
-  //
+  ///< refit in inward direction the pair of TPC and ITS tracks
+  loadITSClustersChunk(tITS.source.getEvent());
+  o2::track::TrackParCov trfit(tTPC.track); // create a copy of TPC track at xRef
+  // in continuos mode the Z of TPC track is meaningless, unless it is CE crossing
+  // track (currently absent, TODO)
+  if (mCompareTracksDZ) {
+    trfit.setZ(tITS.track.getZ()); // fix the seed Z 
+  }
+  auto itsTrOrig = (*mITSTracksArrayInp)[tITS.source.getIndex()]; // currently we store clusterIDs in the track
+  int nclRefit = 0, ncl = itsTrOrig.getNumberOfClusters();
+  float chi2 = 0.f;
+  printf("\nRefit ITS: %d/%d TPC: %d/%d\n", tITS.source.getEvent(),tITS.source.getIndex(),
+	 tTPC.source.getEvent(),tTPC.source.getIndex());
+  auto geom = o2::ITS::GeometryTGeo::Instance();
+  auto propagator = o2::Base::Propagator::Instance();
+  for (int icl = 0;icl<ncl;icl++) {
+    const auto& clus = (*mITSClustersArrayInp)[itsTrOrig.getClusterIndex(icl)];
+
+    float alpha = geom->getSensorRefAlpha(clus.getSensorID()), x = clus.getX();
+    if (!trfit.rotate(alpha) ||
+	!propagator->PropagateToXBxByBz(trfit, x, o2::constants::physics::MassPionCharged, MaxSnp, 2., 1) ) {
+      break;
+    }
+    chi2 += trfit.getPredictedChi2(static_cast<const o2::BaseCluster<float>&>(clus));
+    if (!trfit.update( static_cast<const o2::BaseCluster<float>&>(clus)) ) {
+      break;
+    }
+    nclRefit++;
+  }
+  if (nclRefit != ncl) {
+    printf("FAILED\n");
+    trfit.Print();
+    return false; 
+  }
+  
   return true;
 }
 

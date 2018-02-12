@@ -23,6 +23,7 @@
 #include <string>
 #include <TStopwatch.h>
 #include "ReconstructionDataFormats/Track.h"
+#include "ReconstructionDataFormats/EvIndex.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "CommonUtils/TreeStreamRedirector.h"
 
@@ -83,23 +84,11 @@ struct timeBracket {
   }
 };
  
-///< identifier for the track entry
-struct trackOrigin {
-  int id    = MinusOne;  ///< entry in the chunk
-  int chunk = MinusOne;  ///< data chunk (tree entry, message packet..)
-  trackOrigin(int tid,int tch) : id(tid), chunk(tch) {}
-  trackOrigin() = default;
-  void set(int tid,int tch) {
-    id = tid;
-    chunk = tch;
-  }
-};
- 
 ///< TPC track parameters propagated to reference X, with time bracket and index of
 ///< original track in the currently loaded TPC reco output
 struct TrackLocTPC {
   o2::track::TrackParCov track;
-  trackOrigin source;  ///< track origin id
+  o2::dataformats::EvIndex<int,int> source;  ///< track origin id
   timeBracket timeBins;      ///< bracketing time-bins
   float time0=0.; //RS tmp
   float lastZ=0; // RS tmp
@@ -113,7 +102,7 @@ struct TrackLocTPC {
   int ncl = 0;//RS tmp
   int side = 0; //RS tmp
   int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchTPC struct in the mMatchesTPC
-  TrackLocTPC(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
+  TrackLocTPC(const o2::track::TrackParCov& src, int tch, int tid) : track(src),source(tch,tid) {}
   TrackLocTPC() = default;
   ClassDefNV(TrackLocTPC,2); //RS TODO set to 1
 };
@@ -122,11 +111,11 @@ struct TrackLocTPC {
 ///< original track in the currently loaded ITS reco output
 struct TrackLocITS {
   o2::track::TrackParCov track;
-  trackOrigin source;        ///< track origin id
+  o2::dataformats::EvIndex<int,int> source;        ///< track origin id
   timeBracket timeBins;      ///< bracketing time-bins
   int roFrame = MinusOne;     ///< ITS readout frame assigned to this track
   int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchCand struct in the mMatchesITS
-  TrackLocITS(const o2::track::TrackParCov& src, int tid, int tch) : track(src),source(tid,tch) {}
+  TrackLocITS(const o2::track::TrackParCov& src, int tch, int tid) : track(src),source(tch,tid) {}
   TrackLocITS() = default;
   ClassDefNV(TrackLocITS,1);
 };
@@ -135,9 +124,9 @@ struct TrackLocITS {
 ///< in the matchCandidate the ID of the 1st (best) matchRecord in the mMatchRecordsITS
 ///< ot mMatchRecordsTPC container
 struct matchCand {
-  trackOrigin source;        ///< track origin id
+  o2::dataformats::EvIndex<int,int> source;        ///< track origin id
   int first = MinusOne;  ///< 1st match for this track in the mMatchRecordsTPC
-  matchCand(const trackOrigin& src) : source(src) {}
+  matchCand(const o2::dataformats::EvIndex<int,int>& src) : source(src) {}
   matchCand() = default;
 };
  
@@ -178,6 +167,21 @@ class MatchTPCITS {
   ///< set chain containing ITS clusters
   void setInputChainITSClusters(TChain* chain) { mChainITSClusters = chain;}
 
+  ///< set input branch names for the input from the tree
+  void setITSTrackBranchName(const std::string& nm) { mITSTrackBranchName = nm; }
+  void setTPCTrackBranchName(const std::string& nm) { mTPCTrackBranchName = nm; }
+  void setITSClusterBranchName(const std::string& nm) { mITSClusterBranchName = nm; }
+  void setITSMCTruthBranchName(const std::string& nm) { mITSMCTruthBranchName = nm; }
+  void setTPCMCTruthBranchName(const std::string& nm) { mTPCMCTruthBranchName = nm; }
+
+  ///< get input branch names for the input from the tree
+  const std::string&  getITSTrackBranchName() const { return mITSTrackBranchName; }
+  const std::string&  getTPCTrackBranchName() const { return mTPCTrackBranchName; }
+  const std::string&  getITSClusterBranchName() const { return mITSClusterBranchName; }
+  const std::string&  getITSMCTruthBranchName() const { return mITSMCTruthBranchName; }
+  const std::string&  getTPCMCTruthBranchName() const { return mTPCMCTruthBranchName; }
+
+  
   ///< print settings
   void print() const;
   void printCandidatesTPC() const;
@@ -260,8 +264,10 @@ class MatchTPCITS {
   void attachInputChains();
   bool prepareTPCTracks();
   bool prepareITSTracks();
-  bool loadTPCTracks();
-  bool loadITSTracks();
+  bool loadTPCTracksNextChunk();
+  bool loadITSTracksNextChunk();
+  bool loadITSClustersChunk(int chunk);
+
   void doMatching(int sec);
 
   void refitWinners();
@@ -333,8 +339,9 @@ class MatchTPCITS {
   
   bool mInitDone = false;   ///< flag init already done
   
-  int mCurrTPCTreeEntry=-1; ///< current TPC tree entry loaded to memory
-  int mCurrITSTreeEntry=-1; ///< current ITS tree entry loaded to memory
+  int mCurrTPCTracksTreeEntry = -1; ///< current TPC tracks tree entry loaded to memory
+  int mCurrITSTracksTreeEntry = -1; ///< current ITS tracks tree entry loaded to memory
+  int mCurrITSClustersTreeEntry = -1; ///< current ITS clusters tree entry loaded to memory
   float mXTPCInnerRef = 83.0; ///< reference radius at which TPC provides the tracks 
   float mXRef = 70.0;         ///< reference radius to propage tracks for matching
   float mYMaxAtXRef = 0.;     ///< max Y in the sector at reference X
@@ -392,7 +399,7 @@ class MatchTPCITS {
   std::vector<o2::ITS::CookedTrack> *mITSTracksArrayInp = nullptr;             ///< input ITS tracks
   std::vector<o2::TPC::TrackTPC> *mTPCTracksArrayInp = nullptr;                ///< input TPC tracks
 
-  std::vector<o2::ITSMFT::Cluster> *mITSClusArrayInp = nullptr;                ///< input ITS clusters
+  std::vector<o2::ITSMFT::Cluster> *mITSClustersArrayInp = nullptr;            ///< input ITS clusters
   
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mITSTrkLabels = nullptr; ///< input ITS Track MC labels
   o2::dataformats::MCTruthContainer<o2::MCCompLabel> *mTPCTrkLabels = nullptr; ///< input TPC Track MC labels
@@ -430,7 +437,7 @@ class MatchTPCITS {
   std::array<std::vector<int>,o2::constants::math::NSectors> mTPCTimeBinStart;
   ///<indices of 1st entries of ITS tracks with givem ROframe
   std::array<std::vector<int>,o2::constants::math::NSectors> mITSTimeBinStart; 
-
+  
   std::string mITSTrackBranchName = "ITSTrack"; ///< name of branch containing input ITS tracks
   std::string mTPCTrackBranchName = "Tracks";    ///< name of branch containing input TPC tracks
   std::string mITSClusterBranchName = "ITSCluster";    ///< name of branch containing input ITS clusters
