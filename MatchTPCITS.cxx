@@ -112,16 +112,17 @@ void MatchTPCITS::init()
   const auto & gasParam = o2::TPC::ParameterGas::defaultInstance();
   const auto & elParam = o2::TPC::ParameterElectronics::defaultInstance();
   const auto & detParam = o2::TPC::ParameterDetector::defaultInstance();
-  float tpcTBin = elParam.getZBinWidth();
+  mTPCTBinMUS = elParam.getZBinWidth();
   mTPCVDrift0 = gasParam.getVdrift();
   mTPCZMax = detParam.getTPClength();
   
   assert(mITSROFrameLengthMUS>0.f);
   mITSROFramePhaseOffset = mITSROFrameOffsetMUS/mITSROFrameLengthMUS;
-  mITSROFrame2TPCBin = mITSROFrameLengthMUS/tpcTBin;
+  mITSROFrame2TPCBin = mITSROFrameLengthMUS/mTPCTBinMUS;
   mTPCBin2ITSROFrame = 1./mITSROFrame2TPCBin;
-  mTPCBin2Z = tpcTBin*mTPCVDrift0;
+  mTPCBin2Z = mTPCTBinMUS*mTPCVDrift0;
   mZ2TPCBin = 1./mTPCBin2Z;
+  mTPCVDrift0Inv = 1./mTPCVDrift0;
   mNTPCBinsFullDrift = mTPCZMax*mZ2TPCBin;
 
   mTPCTimeEdgeTSafeMargin = z2TPCBin(mTPCTimeEdgeZSafeMargin);
@@ -1119,13 +1120,19 @@ void MatchTPCITS::refitWinners()
 bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC)
 {
   ///< refit in inward direction the pair of TPC and ITS tracks
+
   loadITSClustersChunk(tITS.source.getEvent());
+  loadITSTracksChunk(tITS.source.getEvent());  
+  loadTPCTracksChunk(tTPC.source.getEvent());
+
   o2::track::TrackParCov trfit(tTPC.track); // create a copy of TPC track at xRef
   // in continuos mode the Z of TPC track is meaningless, unless it is CE crossing
   // track (currently absent, TODO)
   if (mCompareTracksDZ) {
     trfit.setZ(tITS.track.getZ()); // fix the seed Z 
   }
+  float deltaT = (trfit.getZ() - tTPC.track.getZ())*mZ2TPCBin; // time correction in time-bins
+
   auto itsTrOrig = (*mITSTracksArrayInp)[tITS.source.getIndex()]; // currently we store clusterIDs in the track
   int nclRefit = 0, ncl = itsTrOrig.getNumberOfClusters();
   float chi2 = 0.f;
@@ -1135,7 +1142,6 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
   auto propagator = o2::Base::Propagator::Instance();
   for (int icl = 0;icl<ncl;icl++) {
     const auto& clus = (*mITSClustersArrayInp)[itsTrOrig.getClusterIndex(icl)];
-
     float alpha = geom->getSensorRefAlpha(clus.getSensorID()), x = clus.getX();
     if (!trfit.rotate(alpha) ||
 	!propagator->PropagateToXBxByBz(trfit, x, o2::constants::physics::MassPionCharged, MaxSnp, 2., 1) ) {
@@ -1149,14 +1155,65 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
   }
   if (nclRefit != ncl) {
     printf("FAILED after ncl=%d\n",nclRefit);
-    printf("seed: "); trfit.Print();
-    printf("its:  "); tITS.track.Print();
-    printf("tpc:  "); tTPC.track.Print();
+    printf("seed: "); trfit.print();
+    printf("its:  "); tITS.track.print();
+    printf("tpc:  "); tTPC.track.print();
     return false; 
   }
+
+  /// precise time estimate
+  float time = tpcTrOrig.getTimeVertex(mTPCBin2Z);
+  auto tpcTrOrig = (*mTPCTracksArrayInp)[tTPC.source.getIndex()];
+  if (trcOrig.hasASideClustersOnly()) {
+    time += deltaT;
+  }
+  else if (trcOrig.hasCSideClustersOnly()) {
+    time -= deltaT;
+  }
+  else {
+    // TODO : special treatment of tracks crossing the CE
+  }
+  // convert time to microseconds
+  time *= mTPCTBinMUS;
+  // estimate the error on time
+  float timeErr = std::sqrt(tITS.track.getSigmaZ2()+iTPC.track.getSigmaZ2())*mTPCVDrift0Inv;
   
   return true;
 }
+
+//________________________________________________________
+void MatchTPCITS::loadITSClustersChunk(int chunk)
+{
+  // load single entry from ITS clusters tree
+  if (mCurrITSClustersTreeEntry!=chunk) {
+    mTimerIO.Start(false);      
+    mChainITSClusters->GetEntry(mCurrITSClustersTreeEntry = chunk);
+    mTimerIO.Start(stop);  
+  }
+}
+
+//________________________________________________________
+void MatchTPCITS::loadITSTracksChunk(int chunk)
+{
+  // load single entry from ITS tracks tree
+  if (mCurrITSTracksTreeEntry!=chunk) {
+    mTimerIO.Start(false);      
+    mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry = chunk);
+    mTimerIO.Start(stop);  
+  }
+}
+
+//________________________________________________________
+void MatchTPCITS::loadTPCTracksChunk(int chunk)
+{
+  // load single entry from TPC tracks tree  
+  if (mCurrITSTracksTreeEntry!=chunk) {
+    mTimerIO.Start(false);      
+    mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry = chunk);
+    mTimerIO.Start(stop);  
+  }
+}
+
 
 
 #ifdef _ALLOW_DEBUG_TREES_

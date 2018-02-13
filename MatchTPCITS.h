@@ -266,8 +266,10 @@ class MatchTPCITS {
   bool prepareITSTracks();
   bool loadTPCTracksNextChunk();
   bool loadITSTracksNextChunk();
-  bool loadITSClustersChunk(int chunk);
-
+  void loadITSClustersChunk(int chunk);
+  void loadITSTracksChunk(int chunk);
+  void loadTPCTracksChunk(int chunk);
+  
   void doMatching(int sec);
 
   void refitWinners();
@@ -382,11 +384,13 @@ class MatchTPCITS {
   float mITSROFrameOffsetMUS = 0;   ///< time in \mus corresponding to start of 1st ITS ROFrame,
                                     ///< i.e. t = ROFrameID*mITSROFrameLengthMUS - mITSROFrameOffsetMUS
   float mITSROFramePhaseOffset = 0; ///< mITSROFrameOffsetMUS recalculated in mITSROFrameLengthMUS units
-  float mTPCVDrift0 = -1.; ///< TPC nominal drift speed in cm/microseconds
+  float mTPCVDrift0 = -1.;          ///< TPC nominal drift speed in cm/microseconds
+  float mTPCVDrift0Inv = -1.;          ///< TPC nominal drift speed in cm/microseconds
+  float mTPCTBinMUS = 0.;           ///< TPC time bin duration in microseconds
   float mITSROFrame2TPCBin = 0.; ///< conversion coeff from ITS ROFrame units to TPC time-bin
   float mTPCBin2ITSROFrame = 0.; ///< conversion coeff from TPC time-bin to ITS ROFrame units
-  float mZ2TPCBin = 0.; ///< conversion coeff from Z to TPC time-bin
-  float mTPCBin2Z = 0.; ///< conversion coeff from TPC time-bin to Z
+  float mZ2TPCBin = 0.;          ///< conversion coeff from Z to TPC time-bin
+  float mTPCBin2Z = 0.;          ///< conversion coeff from TPC time-bin to Z
   float mNTPCBinsFullDrift = 0.; ///< max time bin for full drift
   float mTPCZMax = 0.;
 
