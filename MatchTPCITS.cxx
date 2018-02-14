@@ -73,14 +73,14 @@ void MatchTPCITS::run()
   
   selectBestMatches();
 
+  refitWinners();
+
 #ifdef _ALLOW_DEBUG_TREES_
   if ( mDBGOut && isDebugFlag(WinnerMatchesTree) ) {
     dumpWinnerMatches();
   }
   mDBGOut.reset();
 #endif
-
-  refitWinners();
   
   mTimerTot.Stop();
   
@@ -552,25 +552,6 @@ bool MatchTPCITS::loadITSTracksNextChunk()
   --mCurrITSTracksTreeEntry;
   mTimerIO.Stop();
   return false;
-}
-
-//_____________________________________________________
-bool MatchTPCITS::loadITSClustersChunk(int chunk)
-{
-  ///< load next chunk of ITS clusters data
-  if (mCurrITSTracksTreeEntry==chunk && mCurrITSClustersTreeEntry==chunk) {
-    return true;
-  }
-  mTimerIO.Start(false);
-  mCurrITSTracksTreeEntry = mCurrITSClustersTreeEntry = chunk;
-  mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry);
-  mChainITSClusters->GetEntry(mCurrITSClustersTreeEntry);
-
-  LOG(INFO)<<"Loading ITS clusters entry "<<chunk<<" -> "
-	     <<mITSClustersArrayInp->size()<<" clusters"<<FairLogger::endl;
-  mTimerIO.Stop();
-  return true;
-
 }
 
 //_____________________________________________________
@@ -1162,12 +1143,12 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
   }
 
   /// precise time estimate
-  float time = tpcTrOrig.getTimeVertex(mTPCBin2Z);
   auto tpcTrOrig = (*mTPCTracksArrayInp)[tTPC.source.getIndex()];
-  if (trcOrig.hasASideClustersOnly()) {
+  float time = tpcTrOrig.getTimeVertex(mTPCBin2Z);
+  if (tpcTrOrig.hasASideClustersOnly()) {
     time += deltaT;
   }
-  else if (trcOrig.hasCSideClustersOnly()) {
+  else if (tpcTrOrig.hasCSideClustersOnly()) {
     time -= deltaT;
   }
   else {
@@ -1176,7 +1157,11 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
   // convert time to microseconds
   time *= mTPCTBinMUS;
   // estimate the error on time
-  float timeErr = std::sqrt(tITS.track.getSigmaZ2()+iTPC.track.getSigmaZ2())*mTPCVDrift0Inv;
+  float timeErr = std::sqrt(tITS.track.getSigmaZ2()+tTPC.track.getSigmaZ2())*mTPCVDrift0Inv;
+  auto tITSnc = tITS;
+  auto tTPCnc = tTPC;
+  (*mDBGOut)<<"refit"<<"chi2="<<chi2<<"its="<<tITSnc<<"tpc="<<tTPCnc<<"rft"<<trfit
+	    <<"time"<<time<<"timeE"<<timeErr<<"\n";
   
   return true;
 }
@@ -1188,7 +1173,7 @@ void MatchTPCITS::loadITSClustersChunk(int chunk)
   if (mCurrITSClustersTreeEntry!=chunk) {
     mTimerIO.Start(false);      
     mChainITSClusters->GetEntry(mCurrITSClustersTreeEntry = chunk);
-    mTimerIO.Start(stop);  
+    mTimerIO.Stop();  
   }
 }
 
@@ -1199,7 +1184,7 @@ void MatchTPCITS::loadITSTracksChunk(int chunk)
   if (mCurrITSTracksTreeEntry!=chunk) {
     mTimerIO.Start(false);      
     mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry = chunk);
-    mTimerIO.Start(stop);  
+    mTimerIO.Stop();  
   }
 }
 
@@ -1210,7 +1195,7 @@ void MatchTPCITS::loadTPCTracksChunk(int chunk)
   if (mCurrITSTracksTreeEntry!=chunk) {
     mTimerIO.Start(false);      
     mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry = chunk);
-    mTimerIO.Start(stop);  
+    mTimerIO.Stop();  
   }
 }
 
