@@ -19,7 +19,6 @@
 #include "ITSBase/GeometryTGeo.h"
 
 #include "SimulationDataFormat/MCTruthContainer.h"
-#include "SimulationDataFormat/MCCompLabel.h"
 
 #include "DetectorsBase/Propagator.h"
 #include "CommonUtils/TreeStream.h"
