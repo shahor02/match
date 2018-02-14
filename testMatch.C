@@ -1,6 +1,7 @@
 #if !defined(__CLING__) || defined(__ROOTCLING__)
 #include <TFile.h>
 #include <TChain.h>
+#include <TTree.h>
 #include <TGeoGlobalMagField.h>
 #include <string>
 #include <FairLogger.h>
@@ -31,17 +32,22 @@ void testMatch(std::string path = "./"
   //>>>---------- attach input data --------------->>>
   TChain itsTracks("o2sim");
   itsTracks.AddFile((path+inputTracksITS).data());
-  matching.setInputChainITSTracks(&itsTracks);
+  matching.setInputTreeITSTracks(&itsTracks);
 
   TChain tpcTracks("events");
   tpcTracks.AddFile((path+inputTracksTPC).data());
-  matching.setInputChainTPCTracks(&tpcTracks);
+  matching.setInputTreeTPCTracks(&tpcTracks);
 
   TChain itsClusters("o2sim");
   itsClusters.AddFile((path+inputClustersITS).data());
-  matching.setInputChainITSClusters(&itsClusters);
+  matching.setInputTreeITSClusters(&itsClusters);
 
   //<<<---------- attach input data ---------------<<<
+  
+  // create/attach output tree
+  TFile outFile((path+outputfile).data(),"recreate");
+  TTree outTree("matchTPCITS","Matched TPC-ITS tracks");
+  matching.setOutputTree(&outTree);
   
 #ifdef _ALLOW_DEBUG_TREES_
   matching.setDebugTreeFileName(path+matching.getDebugTreeFileName());
@@ -68,5 +74,9 @@ void testMatch(std::string path = "./"
   matching.init();
 
   matching.run();
+
+  outFile.cd();
+  outTree.Write();
+  outFile.Close();
   
 }

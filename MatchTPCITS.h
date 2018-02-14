@@ -23,11 +23,12 @@
 #include <string>
 #include <TStopwatch.h>
 #include "ReconstructionDataFormats/Track.h"
-#include "ReconstructionDataFormats/EvIndex.h"
+#include "ReconstructionDataFormats/TrackTPCITS.h"
+#include "CommonDataFormat/EvIndex.h"
 #include "SimulationDataFormat/MCCompLabel.h"
 #include "CommonUtils/TreeStreamRedirector.h"
 
-class TChain;
+class TTree;
 
 namespace o2
 {
@@ -91,16 +92,10 @@ struct TrackLocTPC {
   o2::dataformats::EvIndex<int,int> source;  ///< track origin id
   timeBracket timeBins;      ///< bracketing time-bins
   float time0=0.; //RS tmp
-  float lastZ=0; // RS tmp
-  float firstZ=0; // RS tmp
-  float lastZ0=0; // RS tmp
-  float firstZ0=0; // RS tmp
   float zMin = 0; // min possible Z of this track
   float zMax = 0; // max possible Z of this track
   short tFwd = 0;
   short tBwd = 0;
-  int ncl = 0;//RS tmp
-  int side = 0; //RS tmp
   int matchID = MinusOne;     ///< entry (non if MinusOne) of its matchTPC struct in the mMatchesTPC
   TrackLocTPC(const o2::track::TrackParCov& src, int tch, int tid) : track(src),source(tch,tid) {}
   TrackLocTPC() = default;
@@ -152,20 +147,28 @@ class MatchTPCITS {
   ///< perform all initializations
   void init();
 
+  ///< get max number of output matched tracks to store per tree entry
+  int  getMaxOutputTracksPerEntry() const { return mMaxOutputTracksPerEntry; }
+  ///< set max number of output matched tracks to store per tree entry
+  void setMaxOutputTracksPerEntry(int n) { mMaxOutputTracksPerEntry = n>1 ? n : 1; }
+
   ///< set ITS ROFrame duration in microseconds
   void setITSROFrameLengthMUS(float fums) { mITSROFrameLengthMUS = fums; }
 
   ///< set ITS 0-th ROFrame time start in \mus
   void setITSROFrameOffsetMUS(float v)  { mITSROFrameOffsetMUS = v; }
   
-  ///< set chain containing ITS tracks 
-  void setInputChainITSTracks(TChain* chain) { mChainITSTracks = chain;}
+  ///< set tree/chain containing ITS tracks 
+  void setInputTreeITSTracks(TTree* tree) { mTreeITSTracks = tree;}
 
-  ///< set chain containing TPC tracks 
-  void setInputChainTPCTracks(TChain* chain) { mChainTPCTracks = chain;}
+  ///< set tree/chain containing TPC tracks 
+  void setInputTreeTPCTracks(TTree* tree) { mTreeTPCTracks = tree;}
 
-  ///< set chain containing ITS clusters
-  void setInputChainITSClusters(TChain* chain) { mChainITSClusters = chain;}
+  ///< set tree/chain containing ITS clusters
+  void setInputTreeITSClusters(TTree* tree) { mTreeITSClusters = tree;}
+
+  ///< set output tree to write matched tracks
+  void setOutputTree(TTree* tr) { mOutputTree = tr;}
 
   ///< set input branch names for the input from the tree
   void setITSTrackBranchName(const std::string& nm) { mITSTrackBranchName = nm; }
@@ -173,6 +176,7 @@ class MatchTPCITS {
   void setITSClusterBranchName(const std::string& nm) { mITSClusterBranchName = nm; }
   void setITSMCTruthBranchName(const std::string& nm) { mITSMCTruthBranchName = nm; }
   void setTPCMCTruthBranchName(const std::string& nm) { mTPCMCTruthBranchName = nm; }
+  void setOutTPCITSTracksBranchName(const std::string& nm) { mOutTPCITSTracksBranchName = nm; }
 
   ///< get input branch names for the input from the tree
   const std::string&  getITSTrackBranchName() const { return mITSTrackBranchName; }
@@ -180,7 +184,7 @@ class MatchTPCITS {
   const std::string&  getITSClusterBranchName() const { return mITSClusterBranchName; }
   const std::string&  getITSMCTruthBranchName() const { return mITSMCTruthBranchName; }
   const std::string&  getTPCMCTruthBranchName() const { return mTPCMCTruthBranchName; }
-
+  const std::string&  getOutTPCITSTracksBranchName() const { return mOutTPCITSTracksBranchName; }  
   
   ///< print settings
   void print() const;
@@ -261,7 +265,7 @@ class MatchTPCITS {
   
  private:
   
-  void attachInputChains();
+  void attachInputTrees();
   bool prepareTPCTracks();
   bool prepareITSTracks();
   bool loadTPCTracksNextChunk();
@@ -273,7 +277,7 @@ class MatchTPCITS {
   void doMatching(int sec);
 
   void refitWinners();
-  bool refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC);
+  bool refitTrackITSTPC(const TrackLocITS& tITS);
   void selectBestMatches();
   void buildMatch2TrackTables();
   bool validateTPCMatch(int mtID);
@@ -394,10 +398,12 @@ class MatchTPCITS {
   float mNTPCBinsFullDrift = 0.; ///< max time bin for full drift
   float mTPCZMax = 0.;
 
-  TChain *mChainITSTracks = nullptr; ///< input chain for ITS tracks
-  TChain *mChainTPCTracks = nullptr; ///< input chain for TPC tracks
-  TChain *mChainITSClusters = nullptr; ///< input chain for ITS clusters
- 
+  TTree *mTreeITSTracks = nullptr; ///< input tree for ITS tracks
+  TTree *mTreeTPCTracks = nullptr; ///< input tree for TPC tracks
+  TTree *mTreeITSClusters = nullptr; ///< input tree for ITS clusters
+
+  TTree *mOutputTree = nullptr; ///< output tree for matched tracks
+  
   ///>>>------ these are input arrays which should not be modified by the matching code
   //           since this info is provided by external device
   std::vector<o2::ITS::CookedTrack> *mITSTracksArrayInp = nullptr;             ///< input ITS tracks
@@ -441,12 +447,17 @@ class MatchTPCITS {
   std::array<std::vector<int>,o2::constants::math::NSectors> mTPCTimeBinStart;
   ///<indices of 1st entries of ITS tracks with givem ROframe
   std::array<std::vector<int>,o2::constants::math::NSectors> mITSTimeBinStart; 
-  
+
+  ///<outputs tracks container
+  std::vector<o2::dataformats::TrackTPCITS> mMatchedTracks;
+  int mMaxOutputTracksPerEntry = 500; ///< max number of output tracks to store per entry
+
   std::string mITSTrackBranchName = "ITSTrack"; ///< name of branch containing input ITS tracks
   std::string mTPCTrackBranchName = "Tracks";    ///< name of branch containing input TPC tracks
   std::string mITSClusterBranchName = "ITSCluster";    ///< name of branch containing input ITS clusters
   std::string mITSMCTruthBranchName = "ITSTrackMCTruth"; ///< name of branch containing ITS MC labels
   std::string mTPCMCTruthBranchName = "TracksMCTruth"; ///< name of branch containing input TPC tracks
+  std::string mOutTPCITSTracksBranchName = "TPCITS"; ///< name of branch containing output matched tracks  
   
 #ifdef _ALLOW_DEBUG_TREES_
   std::unique_ptr<o2::utils::TreeStreamRedirector> mDBGOut;

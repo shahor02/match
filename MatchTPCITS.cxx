@@ -7,15 +7,14 @@
 // In applying this license CERN does not waive the privileges and immunities
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
-#include <TChain.h>
+#include <TTree.h>
 #include <cassert>
-#include <TChain.h>
 
 #include "FairLogger.h"
 #include "Field/MagneticField.h"
 #include "Field/MagFieldFast.h"
 #include "ITSReconstruction/CookedTrack.h"
-#include "TPCReconstruction/TrackTPC.h"
+#include "DataFormatsTPC/TrackTPC.h"
 #include "ITSMFTReconstruction/Cluster.h"
 #include "ITSBase/GeometryTGeo.h"
 
@@ -64,10 +63,12 @@ void MatchTPCITS::run()
     doMatching(sec);
   }
 
-  mTimerTot.Stop();
-  printCandidatesTPC();
-  printCandidatesITS();
-  mTimerTot.Start(false);
+  if (0) {
+    mTimerTot.Stop();
+    printCandidatesTPC();
+    printCandidatesITS();
+    mTimerTot.Start(false);
+  }
   
   buildMatch2TrackTables();
   
@@ -127,7 +128,17 @@ void MatchTPCITS::init()
 
   mTPCTimeEdgeTSafeMargin = z2TPCBin(mTPCTimeEdgeZSafeMargin);
 
-  attachInputChains();
+  attachInputTrees();
+
+  // create output branch
+  if (mOutputTree) {
+    mOutputTree->Branch(mOutTPCITSTracksBranchName.data(),&mMatchedTracks);
+    LOG(INFO)<<"Matched tracks will be stored in "<<mOutTPCITSTracksBranchName
+	     <<" branch of tree "<<mOutputTree->GetName()<<FairLogger::endl;    
+  }
+  else {
+    LOG(ERROR)<<"Output tree is not attached, matched tracks will not be stored"<<FairLogger::endl;
+  }
   
 #ifdef _ALLOW_DEBUG_TREES_
   // debug streamer
@@ -181,7 +192,7 @@ void MatchTPCITS::selectBestMatches()
 	continue;
       }
     }
-    printf("iter %d Validated %d of %d\n",iter,nValidated,mMatchesTPC.size());
+    printf("iter %d Validated %d of %d\n",iter,nValidated,int(mMatchesTPC.size()));
     iter++;
   } while(nValidated);
   
@@ -249,50 +260,50 @@ int MatchTPCITS::getNMatchRecordsITS(const matchCand& itsMatch) const
 }
 
 //______________________________________________
-void MatchTPCITS::attachInputChains()
+void MatchTPCITS::attachInputTrees()
 {
-  if (!mChainITSTracks) {
-    LOG(FATAL) <<"ITS tracks data input chain is not set"<<FairLogger::endl;
+  if (!mTreeITSTracks) {
+    LOG(FATAL) <<"ITS tracks data input tree is not set"<<FairLogger::endl;
   }
   
-  if (!mChainTPCTracks) {
-    LOG(FATAL) <<"TPC tracks data input chain is not set"<<FairLogger::endl;
+  if (!mTreeTPCTracks) {
+    LOG(FATAL) <<"TPC tracks data input tree is not set"<<FairLogger::endl;
   }
 
-  if (!mChainITSClusters) {
-    LOG(FATAL) <<"ITS clusters data input chain is not set"<<FairLogger::endl;
+  if (!mTreeITSClusters) {
+    LOG(FATAL) <<"ITS clusters data input tree is not set"<<FairLogger::endl;
   }
 
-  if (!mChainITSTracks->GetBranch(mITSTrackBranchName.data())) {
-    LOG(FATAL) <<"Did not find ITS tracks branch "<<mITSTrackBranchName<<" in the input chain"<<FairLogger::endl;
+  if (!mTreeITSTracks->GetBranch(mITSTrackBranchName.data())) {
+    LOG(FATAL) <<"Did not find ITS tracks branch "<<mITSTrackBranchName<<" in the input tree"<<FairLogger::endl;
   }
-  mChainITSTracks->SetBranchAddress(mITSTrackBranchName.data(),&mITSTracksArrayInp);
+  mTreeITSTracks->SetBranchAddress(mITSTrackBranchName.data(),&mITSTracksArrayInp);
   LOG(INFO)<<"Attached ITS tracks "<<mITSTrackBranchName<<" branch with "
-	   <<mChainITSTracks->GetEntries()<<" entries"<<FairLogger::endl;
+	   <<mTreeITSTracks->GetEntries()<<" entries"<<FairLogger::endl;
 
-  if (!mChainTPCTracks->GetBranch(mTPCTrackBranchName.data())) {
-    LOG(FATAL) <<"Did not find TPC tracks branch "<<mTPCTrackBranchName<<" in the input chain"<<FairLogger::endl;
+  if (!mTreeTPCTracks->GetBranch(mTPCTrackBranchName.data())) {
+    LOG(FATAL) <<"Did not find TPC tracks branch "<<mTPCTrackBranchName<<" in the input tree"<<FairLogger::endl;
   }
-  mChainTPCTracks->SetBranchAddress(mTPCTrackBranchName.data(),&mTPCTracksArrayInp);
+  mTreeTPCTracks->SetBranchAddress(mTPCTrackBranchName.data(),&mTPCTracksArrayInp);
   LOG(INFO)<<"Attached TPC tracks "<<mTPCTrackBranchName<<" branch with "
-	   <<mChainTPCTracks->GetEntries()<<" entries"<<FairLogger::endl;
+	   <<mTreeTPCTracks->GetEntries()<<" entries"<<FairLogger::endl;
 
 
-  if (!mChainITSClusters->GetBranch(mITSClusterBranchName.data())) {
-    LOG(FATAL) <<"Did not find ITS clusters branch "<<mITSClusterBranchName<<" in the input chain"<<FairLogger::endl;
+  if (!mTreeITSClusters->GetBranch(mITSClusterBranchName.data())) {
+    LOG(FATAL) <<"Did not find ITS clusters branch "<<mITSClusterBranchName<<" in the input tree"<<FairLogger::endl;
   }
-  mChainITSClusters->SetBranchAddress(mITSClusterBranchName.data(),&mITSClustersArrayInp);
+  mTreeITSClusters->SetBranchAddress(mITSClusterBranchName.data(),&mITSClustersArrayInp);
   LOG(INFO)<<"Attached ITS clusters "<<mITSClusterBranchName<<" branch with "
-	   <<mChainITSClusters->GetEntries()<<" entries"<<FairLogger::endl;
+	   <<mTreeITSClusters->GetEntries()<<" entries"<<FairLogger::endl;
   
   // is there MC info available ?
-  if (mChainITSTracks->GetBranch(mITSMCTruthBranchName.data())) {
-    mChainITSTracks->SetBranchAddress(mITSMCTruthBranchName.data(),&mITSTrkLabels);
+  if (mTreeITSTracks->GetBranch(mITSMCTruthBranchName.data())) {
+    mTreeITSTracks->SetBranchAddress(mITSMCTruthBranchName.data(),&mITSTrkLabels);
     LOG(INFO)<<"Found ITS Track MCLabels branch "<<mITSMCTruthBranchName<<FairLogger::endl;
   }
   // is there MC info available ?
-  if (mChainTPCTracks->GetBranch(mTPCMCTruthBranchName.data())) {
-    mChainTPCTracks->SetBranchAddress(mTPCMCTruthBranchName.data(),&mTPCTrkLabels);
+  if (mTreeTPCTracks->GetBranch(mTPCMCTruthBranchName.data())) {
+    mTreeTPCTracks->SetBranchAddress(mTPCMCTruthBranchName.data(),&mTPCTrkLabels);
     LOG(INFO)<<"Found TPC Track MCLabels branch "<<mTPCMCTruthBranchName<<FairLogger::endl;
   }
 
@@ -349,13 +360,8 @@ bool MatchTPCITS::prepareTPCTracks()
     if (mMCTruthON) {
       mTPCLblWork.emplace_back(  mTPCTrkLabels->getLabels(it)[0] );
     }
-    // max time increment (in time bins) to have last cluster at the Z of endcap
-    float dtZEdgeTPC = z2TPCBin( mTPCZMax-fabs(trcOrig.getLastClusterZ()) );
-    // max time decrement (in time bins) to have last cluster at the Z=0 (CE)
-    float dtZCETPC = z2TPCBin( fabs(trcOrig.getLastClusterZ()) );
-    // RS: consider more effective narrowing
+
     float time0 = trcOrig.getTimeVertex(mTPCBin2Z);
-    //trc.timeBins.set(time0 - dtZCETPC - mTPCTimeEdgeTSafeMargin,time0 + dtZEdgeTPC + mTPCTimeEdgeTSafeMargin);
     trc.timeBins.set(time0 - trcOrig.getDeltaTBwd() - mTPCTimeEdgeTSafeMargin,
     		     time0 + trcOrig.getDeltaTFwd() + mTPCTimeEdgeTSafeMargin);
     // assign min max possible Z for this track which still respects the clusters A/C side
@@ -370,14 +376,8 @@ bool MatchTPCITS::prepareTPCTracks()
     // TODO : special treatment of tracks crossing the CE
     
     trc.time0 = time0; //RS tmp
-    trc.lastZ = trcOrig.getLastClusterZ(); //RS tmp
-    trc.firstZ = trcOrig.getFirstClusterZ(); //RS tmp
-    trc.lastZ0 = trcOrig.getLastClusterZOrig(); //RS tmp
-    trc.firstZ0 = trcOrig.getFirstClusterZOrig(); //RS tmp
-    trc.side = trcOrig.hasCSideClustersOnly(); //RS tmp
-    trc.tFwd = trcOrig.getDeltaTFwd(); //RS tmp
-    trc.tBwd = trcOrig.getDeltaTBwd(); //RS tmp
-    trc.ncl = trcOrig.getNClusterReferences(); //RS tmp
+    trc.tFwd = trcOrig.getDeltaTFwd();
+    trc.tBwd = trcOrig.getDeltaTBwd();
     // cache work track index
     mTPCSectIndexCache[o2::utils::Angle2Sector( trc.track.getAlpha() )].push_back( mTPCWork.size()-1 ); 
   }
@@ -539,8 +539,8 @@ bool MatchTPCITS::loadITSTracksNextChunk()
   ///< load next chunk of ITS data
   mTimerIO.Start(false);
   
-  while(++mCurrITSTracksTreeEntry < mChainITSTracks->GetEntries()) {
-    mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry);
+  while(++mCurrITSTracksTreeEntry < mTreeITSTracks->GetEntries()) {
+    mTreeITSTracks->GetEntry(mCurrITSTracksTreeEntry);
     LOG(INFO)<<"Loading ITS tracks entry "<<mCurrITSTracksTreeEntry<<" -> "
 	     <<mITSTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (!mITSTracksArrayInp->size()) {
@@ -560,8 +560,8 @@ bool MatchTPCITS::loadTPCTracksNextChunk()
   ///< load next chunk of TPC data
   mTimerIO.Start(false);
   
-  while(++mCurrTPCTracksTreeEntry < mChainTPCTracks->GetEntries()) {
-    mChainTPCTracks->GetEntry(mCurrTPCTracksTreeEntry);
+  while(++mCurrTPCTracksTreeEntry < mTreeTPCTracks->GetEntries()) {
+    mTreeTPCTracks->GetEntry(mCurrTPCTracksTreeEntry);
     LOG(INFO)<<"Loading TPC tracks entry "<<mCurrTPCTracksTreeEntry<<" -> "
 	     <<mTPCTracksArrayInp->size()<<" tracks"<<FairLogger::endl;
     if (mTPCTracksArrayInp->size()<1) {
@@ -1048,6 +1048,7 @@ void MatchTPCITS::print() const
 
   printf("TPC-ITS time(bins) bracketing safety margin: %6.2f\n",mTimeBinTolerance);
   printf("TPC Z->time(bins) bracketing safety margin: %6.2f\n",mTPCTimeEdgeZSafeMargin);
+  printf("Max.Number of matched tracks per output entry: %d\n",mMaxOutputTracksPerEntry);
 
 #ifdef _ALLOW_DEBUG_TREES_
   
@@ -1077,36 +1078,44 @@ void MatchTPCITS::refitWinners()
   LOG(INFO)<<"Refitting winner matches" <<FairLogger::endl;
   mCurrITSTracksTreeEntry = -1;
   mCurrITSClustersTreeEntry = -1;
-  for (int iits=0;iits<int(mITSWork.size());iits++) {
-    auto & its = mITSWork[iits];
-    if (its.matchID<0 || isDisabledITS(mMatchesITS[its.matchID]) ) {
+  for ( const auto& its : mITSWork ) {
+    if ( !refitTrackITSTPC(its) ) {
       continue;
     }
-    const auto & itsMatch = mMatchesITS[its.matchID];
-    const auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
-    int itpc = mTPCMatch2Track[itsMatchRec.matchID];
-    auto & tpc = mTPCWork[itpc];
-    if (!refitTrackITSTPC(its,tpc)) {
-      auto& lblITS = mITSLblWork[iits];
-      auto& lblTPC = mTPCLblWork[itpc];
-      printf("Failed MCtruth: its: %3d/%6d tpc: %3d/%6d\n",
-	     lblITS.getEventID(),lblITS.getTrackID(),
-	     lblTPC.getEventID(),lblTPC.getTrackID());
+    if (mMatchedTracks.size()==mMaxOutputTracksPerEntry) {
+      if (mOutputTree) {
+	mTimerRefit.Stop();
+	mOutputTree->Fill();
+	mTimerRefit.Start(false);
+      }
+      mMatchedTracks.clear();
     }
   }
+  // flush last tracks
+  if (mMatchedTracks.size() && mOutputTree) {
+    mOutputTree->Fill();
+  }
+  mMatchedTracks.clear();
   mTimerRefit.Stop();
 }
 
 //______________________________________________
-bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tTPC)
+bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS)
 {
   ///< refit in inward direction the pair of TPC and ITS tracks
-
+  if (tITS.matchID<0 || isDisabledITS(mMatchesITS[tITS.matchID]) ) {
+    return false; // no match
+  }
+  const auto & itsMatch = mMatchesITS[tITS.matchID];
+  const auto & itsMatchRec = mMatchRecordsITS[itsMatch.first];
+  const auto & tTPC = mTPCWork[ mTPCMatch2Track[itsMatchRec.matchID] ];
+  
   loadITSClustersChunk(tITS.source.getEvent());
   loadITSTracksChunk(tITS.source.getEvent());  
   loadTPCTracksChunk(tTPC.source.getEvent());
 
-  o2::track::TrackParCov trfit(tTPC.track); // create a copy of TPC track at xRef
+  mMatchedTracks.emplace_back(tTPC.track);  // create a copy of TPC track at xRef
+  auto &trfit = mMatchedTracks.back();
   // in continuos mode the Z of TPC track is meaningless, unless it is CE crossing
   // track (currently absent, TODO)
   if (mCompareTracksDZ) {
@@ -1117,8 +1126,6 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
   auto itsTrOrig = (*mITSTracksArrayInp)[tITS.source.getIndex()]; // currently we store clusterIDs in the track
   int nclRefit = 0, ncl = itsTrOrig.getNumberOfClusters();
   float chi2 = 0.f;
-  printf("\nRefit ITS: %d/%d TPC: %d/%d\n", tITS.source.getEvent(),tITS.source.getIndex(),
-	 tTPC.source.getEvent(),tTPC.source.getIndex());
   auto geom = o2::ITS::GeometryTGeo::Instance();
   auto propagator = o2::Base::Propagator::Instance();
   for (int icl = 0;icl<ncl;icl++) {
@@ -1136,9 +1143,9 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
   }
   if (nclRefit != ncl) {
     printf("FAILED after ncl=%d\n",nclRefit);
-    printf("seed: "); trfit.print();
-    printf("its:  "); tITS.track.print();
-    printf("tpc:  "); tTPC.track.print();
+    printf("its was:  "); tITS.track.print();
+    printf("tpc was:  "); tTPC.track.print();
+    mMatchedTracks.pop_back(); // destroy failed track
     return false; 
   }
 
@@ -1158,11 +1165,11 @@ bool MatchTPCITS::refitTrackITSTPC(const TrackLocITS& tITS,const TrackLocTPC& tT
   time *= mTPCTBinMUS;
   // estimate the error on time
   float timeErr = std::sqrt(tITS.track.getSigmaZ2()+tTPC.track.getSigmaZ2())*mTPCVDrift0Inv;
-  auto tITSnc = tITS;
-  auto tTPCnc = tTPC;
-  (*mDBGOut)<<"refit"<<"chi2="<<chi2<<"its="<<tITSnc<<"tpc="<<tTPCnc<<"rft"<<trfit
-	    <<"time"<<time<<"timeE"<<timeErr<<"\n";
-  
+  trfit.setChi2Match( itsMatchRec.chi2 );
+  trfit.setChi2Refit( chi2 );
+  trfit.setTimeMUS(time, timeErr);
+  trfit.setRefTPC(tTPC.source);
+  trfit.setRefITS(tITS.source);
   return true;
 }
 
@@ -1172,7 +1179,7 @@ void MatchTPCITS::loadITSClustersChunk(int chunk)
   // load single entry from ITS clusters tree
   if (mCurrITSClustersTreeEntry!=chunk) {
     mTimerIO.Start(false);      
-    mChainITSClusters->GetEntry(mCurrITSClustersTreeEntry = chunk);
+    mTreeITSClusters->GetEntry(mCurrITSClustersTreeEntry = chunk);
     mTimerIO.Stop();  
   }
 }
@@ -1183,7 +1190,7 @@ void MatchTPCITS::loadITSTracksChunk(int chunk)
   // load single entry from ITS tracks tree
   if (mCurrITSTracksTreeEntry!=chunk) {
     mTimerIO.Start(false);      
-    mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry = chunk);
+    mTreeITSTracks->GetEntry(mCurrITSTracksTreeEntry = chunk);
     mTimerIO.Stop();  
   }
 }
@@ -1192,9 +1199,9 @@ void MatchTPCITS::loadITSTracksChunk(int chunk)
 void MatchTPCITS::loadTPCTracksChunk(int chunk)
 {
   // load single entry from TPC tracks tree  
-  if (mCurrITSTracksTreeEntry!=chunk) {
+  if (mCurrTPCTracksTreeEntry!=chunk) {
     mTimerIO.Start(false);      
-    mChainITSTracks->GetEntry(mCurrITSTracksTreeEntry = chunk);
+    mTreeITSTracks->GetEntry(mCurrTPCTracksTreeEntry = chunk);
     mTimerIO.Stop();  
   }
 }
