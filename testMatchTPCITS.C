@@ -14,13 +14,13 @@
 #include "MatchTPCITS.h"
 #endif
 
-void testMatch(std::string path = "./"
-	       ,std::string outputfile="o2match_itstpc.root"
-	       ,std::string inputTracksITS="o2track_its.root"
-	       ,std::string inputTracksTPC="tracksFromNative.root"
-	       ,std::string inputClustersITS="o2clus.root"
-	       ,std::string inputGeom="O2geometry.root"
-	       ,std::string inputGRP="o2sim_grp.root")
+void testMatchTPCITS(std::string path = "./"
+		     ,std::string outputfile="o2match_itstpc.root"
+		     ,std::string inputTracksITS="o2track_its.root"
+		     ,std::string inputTracksTPC="tracksFromNative.root"
+		     ,std::string inputClustersITS="o2clus.root"
+		     ,std::string inputGeom="O2geometry.root"
+		     ,std::string inputGRP="o2sim_grp.root")
 {
 
   o2::globaltracking::MatchTPCITS matching;

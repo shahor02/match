@@ -437,7 +437,8 @@ class MatchTPCITS {
   std::vector<TrackLocITS> mITSWork; ///<ITS track params prepared for matching
   std::vector<o2::MCCompLabel> mTPCLblWork; ///<TPC track labels
   std::vector<o2::MCCompLabel> mITSLblWork; ///<ITS track labels
-
+  std::vector<float> mWinnerChi2Refit; ///< vector of refitChi2 for winners
+  
   ///< per sector indices of TPC track entry in mTPCWork 
   std::array<std::vector<int>,o2::constants::math::NSectors> mTPCSectIndexCache;
   ///< per sector indices of ITS track entry in mITSWork 

@@ -62,7 +62,7 @@ void MatchTPCITS::run()
     doMatching(sec);
   }
 
-  if (0) {
+  if (0) { // enabling this creates very verbose output
     mTimerTot.Stop();
     printCandidatesTPC();
     printCandidatesITS();
@@ -1075,12 +1075,15 @@ void MatchTPCITS::refitWinners()
   mTimerRefit.Start(false);
   
   LOG(INFO)<<"Refitting winner matches" <<FairLogger::endl;
+  mWinnerChi2Refit.resize(mITSWork.size(),-1.f);
   mCurrITSTracksTreeEntry = -1;
   mCurrITSClustersTreeEntry = -1;
-  for ( const auto& its : mITSWork ) {
+  for ( int i=0;i<mITSWork.size(); i++) {
+    const auto& its = mITSWork[i];
     if ( !refitTrackITSTPC(its) ) {
       continue;
     }
+    mWinnerChi2Refit[i] = mMatchedTracks.back().getChi2Refit();
     if (mMatchedTracks.size()==mMaxOutputTracksPerEntry) {
       if (mOutputTree) {
 	mTimerRefit.Stop();
@@ -1263,7 +1266,8 @@ void MatchTPCITS::dumpWinnerMatches()
     int itpc = mTPCMatch2Track[itsMatchRec.matchID];
     auto & tpc = mTPCWork[itpc];
 
-    (*mDBGOut)<<"matchWin"<<"chi2Match="<< itsMatchRec.chi2<<"its="<<its<<"tpc="<<tpc;
+    (*mDBGOut)<<"matchWin"<<"chi2Match="<< itsMatchRec.chi2<<"chi2Refit="<<mWinnerChi2Refit[iits]
+	      <<"its="<<its<<"tpc="<<tpc;
     
     o2::MCCompLabel lblITS,lblTPC;
     if (mMCTruthON) {
