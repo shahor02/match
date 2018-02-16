@@ -92,7 +92,7 @@ void checkTPCTracksTime(std::string path = "./"
 	printf("Loading header %d, time = %f\n",evID,evTime);
       }
       // track time in \mus under assumption it comes from Z=0
-      float trackTime = track.getTimeVertex(mTPCBin2Z)*mTPCTBinMUS;
+      float trackTime = (track.getTime0() - mTPCZMax/mTPCBin2Z)*mTPCTBinMUS;
       // fill histos for each side separately
       if (track.hasCSideClustersOnly()) {
 	histoC->Fill(z, evTime - trackTime);
@@ -124,7 +124,7 @@ void checkTPCTracksTime(std::string path = "./"
   auto hcx = histoA->ProjectionX();
   float meanCX = hcx->GetBinCenter(hcx->GetMaximumBin());
   hcx->SetTitle("C: Z @ X = 0");
-  hcx->Fit("gaus","","",meanCX-0.5,meanCX-0.5);
+  hcx->Fit("gaus","","",meanCX-0.5,meanCX+0.5);
   canv->cd(6);
   auto hcy = histoA->ProjectionY();
   float meanCY = hcy->GetBinCenter(hcy->GetMaximumBin());
