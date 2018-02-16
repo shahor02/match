@@ -11,7 +11,7 @@
 #include "DetectorsBase/GeometryManager.h"
 #include "DetectorsBase/Propagator.h"
 
-#include "MatchTPCITS.h"
+#include "GlobalTracking/MatchTPCITS.h"
 #endif
 
 void testMatchTPCITS(std::string path = "./"
